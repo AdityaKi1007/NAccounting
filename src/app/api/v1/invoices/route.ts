@@ -1,0 +1,32 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getApiKeyContext, apiUnauthorized } from "@/lib/api-context";
+import { documentConfigs } from "@/lib/documents";
+import { listDocuments, createDocument, type DocumentBody } from "@/lib/documents-api";
+
+const cfg = documentConfigs.invoices;
+
+// Third-party REST API — see Settings → Integrations → API Keys for how to get a key, and
+// that page for the full endpoint list. Body shape for POST/PATCH:
+//   { header: { customer_id, invoice_date, due_date, status, notes, invoice_number? },
+//     lines: [{ item_id?, description, quantity, rate }], taxPercent?: number }
+export async function GET(req: NextRequest) {
+  const ctx = await getApiKeyContext(req);
+  if (!ctx) return apiUnauthorized();
+
+  const { searchParams } = new URL(req.url);
+  const limit = searchParams.get("limit") ? Number(searchParams.get("limit")) : undefined;
+  const offset = searchParams.get("offset") ? Number(searchParams.get("offset")) : undefined;
+
+  const invoices = await listDocuments(cfg, ctx.orgId, { limit, offset });
+  return NextResponse.json({ data: invoices });
+}
+
+export async function POST(req: NextRequest) {
+  const ctx = await getApiKeyContext(req);
+  if (!ctx) return apiUnauthorized();
+
+  const body: DocumentBody = await req.json().catch(() => ({ header: {}, lines: [] }));
+  const result = await createDocument(cfg, ctx.orgId, body);
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
+  return NextResponse.json({ data: { id: result.id } }, { status: 201 });
+}
