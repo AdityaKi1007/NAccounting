@@ -1,0 +1,43 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-naccounting
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-central-1
+
+      - name: Set up ephemeral SSH key
+        run: |
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          ssh-keygen -y -f "$HOME/.ssh/deploy_key" > "$HOME/.ssh/deploy_key.pub"
+
+      - name: Push ephemeral public key via EC2 Instance Connect
+        run: |
+          aws ec2-instance-connect send-ssh-public-key \
+            --instance-id i-073b553040acb1376 \
+            --instance-os-user ubuntu \
+            --ssh-public-key "file://$HOME/.ssh/deploy_key.pub" \
+            --region eu-central-1 \
+            --availability-zone eu-central-1b
+
+      - name: Run deploy-naccounting.sh on EC2
+        run: |
+          ssh -i "$HOME/.ssh/deploy_key" -o StrictHostKeyChecking=no ubuntu@18.158.219.70 "bash ~/deploy-naccounting.sh"

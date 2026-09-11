@@ -84,7 +84,7 @@ export default function CreditNoteEntryPicker({
         ) : invoices.length === 0 ? (
           <p className="text-sm text-gray-400">
             This customer has no invoices eligible for a credit note (only Sent, Overdue, Partially Paid, or Paid
-            invoices can be credited — Draft and Void invoices can't).
+            invoices can be credited — Draft and Void invoices can&apos;t).
           </p>
         ) : (
           <div className="overflow-hidden rounded-md border border-gray-200">
