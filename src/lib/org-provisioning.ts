@@ -25,6 +25,15 @@ export const DEFAULT_CURRENCIES: { code: string; name: string; symbol: string }[
   { code: "ZAR", name: "South African Rand", symbol: "R" },
 ];
 
+// Matches the two starter rows the 2026-09-10 migration backfilled onto every pre-existing
+// organization (migrations/1759900000000_tax_rates_and_corporate_tax.js) — new orgs and
+// existing orgs both end up with the same Tax Rates list rather than a new org seeing an
+// empty table. 5% is also this app's existing hardcoded document-tax default (DocumentForm.tsx).
+export const DEFAULT_TAX_RATES: { name: string; rate: number; isDefault: boolean }[] = [
+  { name: "Standard Rate", rate: 5, isDefault: true },
+  { name: "Zero Rate", rate: 0, isDefault: false },
+];
+
 export const DEFAULT_PAYMENT_TERMS: { name: string; isDefault: boolean }[] = [
   { name: "Due end of next month", isDefault: false },
   { name: "Due end of the month", isDefault: false },
@@ -68,6 +77,11 @@ export const DEFAULT_ACCOUNTS: { code: string; name: string; type: string }[] = 
   // Where an auto-generated payment journal (src/lib/auto-journal.ts) parks the part of a
   // received payment that isn't allocated to any invoice yet (an advance/excess amount).
   { code: "2020", name: "Unearned Revenue", type: "other_current_liability" },
+  // The plug account the Opening Balances settings page (src/lib/auto-journal.ts's
+  // syncOpeningBalanceJournal) posts to so the consolidated opening-balance entry always
+  // balances without the user hand-computing the difference — matches the 2026-09-11
+  // migration's backfill of the same account onto every pre-existing organization.
+  { code: "2030", name: "Opening Balance Adjustments", type: "other_current_liability" },
 ];
 
 /**
@@ -159,6 +173,13 @@ export async function provisionOrganization(
       cur.name,
       cur.symbol,
     ]);
+  }
+
+  for (const rate of DEFAULT_TAX_RATES) {
+    await client.query(
+      `INSERT INTO tax_rates (organization_id, name, rate, is_default) VALUES ($1, $2, $3, $4)`,
+      [orgId, rate.name, rate.rate, rate.isDefault]
+    );
   }
 
   for (const term of DEFAULT_PAYMENT_TERMS) {

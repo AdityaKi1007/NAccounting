@@ -8,6 +8,7 @@ import {
   syncPaymentMadeJournal,
   syncExpenseJournal,
   syncVendorCreditJournal,
+  syncOpeningBalanceJournal,
   recomputeBillBalance,
 } from "@/lib/auto-journal";
 
@@ -93,6 +94,16 @@ export async function POST(req: NextRequest, { params }: { params: { entity: str
       const client = await pool.connect();
       try {
         await syncVendorCreditJournal(client, ctx.orgId, rowId);
+      } finally {
+        client.release();
+      }
+    } else if (params.entity === "vendors") {
+      // Vendors are also plain generic-CRUD (no bespoke create endpoint) — a newly created
+      // vendor's opening_balance feeds the consolidated Opening Balances journal's Accounts
+      // Payable line, so rebuild it here the same way customers' POST route does.
+      const client = await pool.connect();
+      try {
+        await syncOpeningBalanceJournal(client, ctx.orgId);
       } finally {
         client.release();
       }

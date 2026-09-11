@@ -36,6 +36,10 @@ export interface FieldDef {
    * field. Needed for the organizations refEntity special-case (see crud.ts's loadRefOptions)
    * since there's no generic /organizations/[id] detail route to link to. */
   noLink?: boolean;
+  /** Overrides DataTable's default "Active"/"Inactive" pill text for a boolean column whose
+   * true/false states aren't actually an active/inactive distinction (e.g. tax-rates'
+   * is_default — "Default"/"—"). */
+  booleanLabels?: { true: string; false: string };
 }
 
 export interface EntityDef {
@@ -663,8 +667,15 @@ export const entities: Record<string, EntityDef> = {
     kind: "flat",
     titleField: "display_name",
     orderBy: "created_at desc",
-    // No dedicated form (unlike customers) — both create and edit go through the generic
-    // EntityForm, so this flag is what makes that form render AttachmentsField here.
+    // Read-only detail view (contact info, attachments, emails, payables, recent
+    // transactions) instead of going straight to the edit form — mirrors the Customer detail
+    // page (see src/app/(app)/customers/[id]/page.tsx), built when the Send Email feature
+    // needed somewhere to show "emails filed under this vendor's profile". See
+    // src/app/(app)/vendors/[id]/page.tsx. Editing moves to /vendors/[id]/edit — still the
+    // generic EntityForm, no dedicated form (unlike customers).
+    hasDetailView: true,
+    // Consulted by the generic EntityForm (create AND edit both go through it, unlike
+    // customers) — this flag is what makes that form render AttachmentsField here.
     attachments: true,
     listColumns: ["display_name", "company_name", "email", "phone", "currency", "is_active"],
     fields: [
@@ -674,6 +685,7 @@ export const entities: Record<string, EntityDef> = {
       { name: "phone", label: "Phone", type: "text" },
       { name: "billing_address", label: "Billing Address", type: "textarea" },
       { name: "currency", label: "Currency", type: "select", options: currency, default: "AED" },
+      { name: "opening_balance", label: "Opening Balance", type: "currency", default: 0 },
       { name: "is_active", label: "Active", type: "boolean", default: true },
     ],
   },
@@ -685,7 +697,22 @@ export const entities: Record<string, EntityDef> = {
     labelPlural: "Expenses",
     module: "Purchases",
     kind: "flat",
-    titleField: "reference_number",
+    // Deliberately NOT account_id/vendor_id — DataTable auto-links every refEntity select
+    // column to ITS OWN record already (Expense Account -> chart-of-accounts, Vendor ->
+    // vendors), so making one of those the titleField would nest a <Link> for the expense
+    // detail page inside the <Link> renderCell() already returns for that ref, which is
+    // invalid HTML and ambiguous to click. expense_date is a plain column, so it's the one
+    // that opens /expenses/[id] (or used to be reference_number, but that isn't even in
+    // listColumns below, so nothing was ever clickable before this fix).
+    titleField: "expense_date",
+    // Read-only detail view (Journal tab, Paid Through/Paid To, tax fields, receipts) instead
+    // of going straight to the edit form — see src/app/(app)/expenses/[id]/page.tsx, same
+    // pattern as Vendors/Customers. Editing moves to /expenses/[id]/edit. Both the create and
+    // edit routes render a bespoke ExpenseForm (not the generic EntityForm) because of the
+    // tax-rate -> tax_amount computation and the screenshot-specific field grouping — see
+    // src/components/expenses/ExpenseForm.tsx.
+    hasDetailView: true,
+    attachments: true,
     orderBy: "created_at desc",
     listColumns: ["expense_date", "vendor_id", "account_id", "amount", "tax_amount"],
     fields: [
@@ -697,6 +724,27 @@ export const entities: Record<string, EntityDef> = {
       { name: "paid_through_account_id", label: "Paid Through", type: "select", refEntity: "bank-accounts", refLabelField: "account_name", required: true },
       { name: "amount", label: "Amount", type: "currency", required: true, default: 0 },
       { name: "tax_amount", label: "Tax Amount", type: "currency", default: 0 },
+      // Everything below was added for the "Record Expense" screen's UAE-VAT-looking fields —
+      // capture-only (see migrations/1760000000000_expense_tax_fields.js): stored and shown on
+      // the detail page, but none of it changes syncExpenseJournal's GL posting, which still
+      // only ever reads tax_amount above (auto-filled by ExpenseForm.tsx from tax_rate_id).
+      { name: "tax_treatment", label: "Tax Treatment", type: "select", default: "non_vat_registered", options: [
+        { label: "VAT Registered", value: "vat_registered" },
+        { label: "Non VAT Registered", value: "non_vat_registered" },
+        { label: "GCC VAT Registered", value: "gcc_vat_registered" },
+      ] },
+      { name: "place_of_supply", label: "Place of Supply", type: "select", options: [
+        { label: "Abu Dhabi", value: "Abu Dhabi" },
+        { label: "Dubai", value: "Dubai" },
+        { label: "Sharjah", value: "Sharjah" },
+        { label: "Ajman", value: "Ajman" },
+        { label: "Umm Al Quwain", value: "Umm Al Quwain" },
+        { label: "Ras al-Khaimah", value: "Ras al-Khaimah" },
+        { label: "Fujairah", value: "Fujairah" },
+      ] },
+      { name: "reverse_charge", label: "Reverse Charge (DRC)", type: "boolean", default: false },
+      { name: "tax_rate_id", label: "Tax", type: "select", refEntity: "tax-rates", refLabelField: "name" },
+      { name: "customer_id", label: "Customer Name", type: "select", refEntity: "customers", refLabelField: "display_name" },
       { name: "reference_number", label: "Reference #", type: "text" },
       { name: "notes", label: "Notes", type: "textarea" },
     ],
@@ -750,14 +798,22 @@ export const entities: Record<string, EntityDef> = {
     label: "Purchase Order",
     labelPlural: "Purchase Orders",
     module: "Purchases",
-    // Minimal module — generic document form/list (same as Quotes/Bills), no dedicated rich
-    // form or detail page like Sales Orders got. Exists mainly so a Sales Order's "Convert to
-    // Purchase Order" action (src/components/sales-orders/SalesOrderDetailView.tsx) has a
-    // real record to create.
+    // Originally a minimal module — generic document form/list only, no dedicated detail
+    // page — since it existed mainly so a Sales Order's "Convert to Purchase Order" action
+    // had a real record to create. Gained a real read-only, print/PDF-styled detail page (see
+    // src/app/(app)/purchase-orders/[id]/page.tsx, mirroring Sales Orders') when the Send
+    // Email feature needed a proper home for a "Send Email" action — still uses the plain
+    // generic DocumentForm for create/edit (see .../[id]/edit/page.tsx), unlike Sales Orders'
+    // bespoke form.
     kind: "document",
     titleField: "po_number",
     numberField: "po_number",
     numberPrefix: "PO",
+    // The PO# links to the read-only detail page instead of straight to editing — see
+    // src/app/(app)/purchase-orders/[id]/page.tsx (a literal route, so it wins over the
+    // generic [slug]/[id] one regardless of "kind"). Editing moves to
+    // /purchase-orders/[id]/edit.
+    hasDetailView: true,
     orderBy: "created_at desc",
     listColumns: ["po_number", "vendor_id", "order_date", "expected_delivery_date", "status", "total"],
     fields: [
@@ -778,6 +834,10 @@ export const entities: Record<string, EntityDef> = {
         ],
       },
       { name: "notes", label: "Notes", type: "textarea" },
+      // Display-only metadata for the list view, same reasoning as sales-orders'/invoices'
+      // "total" entries — DocumentForm.tsx never reads entity.fields, so this is invisible to
+      // editing; without it this list column rendered as a plain unformatted number.
+      { name: "total", label: "Total", type: "currency" },
     ],
   },
 
@@ -787,17 +847,45 @@ export const entities: Record<string, EntityDef> = {
     label: "Bill",
     labelPlural: "Bills",
     module: "Purchases",
+    // Still "document" for entities.ts/[slug] dispatch purposes (harmless — the literal
+    // /bills/new, /bills/[id], /bills/[id]/edit routes added alongside BillForm.tsx always
+    // win over the generic [slug] catch-all, same as Invoices), but creation/edit now goes
+    // through the bespoke BillForm.tsx + /api/bills (see bills-api.ts), NOT the generic
+    // DocumentForm/documents-api.ts, because a bill line needs its own Account/Tax/Customer
+    // fields that the shared document shape doesn't have.
     kind: "document",
     titleField: "bill_number",
     numberField: "bill_number",
     numberPrefix: "BILL",
     orderBy: "created_at desc",
+    // Read-only detail view (item table, Journal, Payments Made history) instead of going
+    // straight to the edit form — see src/app/(app)/bills/[id]/page.tsx, same pattern as
+    // Invoices/Expenses.
+    hasDetailView: true,
+    attachments: true,
     listColumns: ["bill_number", "vendor_id", "bill_date", "due_date", "status", "total", "balance_due"],
     fields: [
       { name: "bill_number", label: "Bill #", type: "text", required: true },
       { name: "vendor_id", label: "Vendor", type: "select", refEntity: "vendors", refLabelField: "display_name", required: true },
       { name: "bill_date", label: "Bill Date", type: "date" },
       { name: "due_date", label: "Due Date", type: "date" },
+      { name: "order_number", label: "Order Number", type: "text" },
+      { name: "permit_number", label: "Permit#", type: "text" },
+      { name: "subject", label: "Subject", type: "text" },
+      {
+        name: "payment_terms",
+        label: "Payment Terms",
+        type: "select",
+        default: "due_on_receipt",
+        options: [
+          { label: "Due on Receipt", value: "due_on_receipt" },
+          { label: "Net 15", value: "net_15" },
+          { label: "Net 30", value: "net_30" },
+          { label: "Net 45", value: "net_45" },
+          { label: "Net 60", value: "net_60" },
+        ],
+      },
+      { name: "accounts_payable_account_id", label: "Accounts Payable", type: "select", refEntity: "chart-of-accounts", refLabelField: "name" },
       {
         name: "status",
         label: "Status",
@@ -814,6 +902,10 @@ export const entities: Record<string, EntityDef> = {
         ],
       },
       { name: "notes", label: "Notes", type: "textarea" },
+      // Display-only for the list view (same reasoning as invoices'/sales-orders' "total"
+      // entries) — BillForm.tsx never reads entity.fields, so this is invisible to editing.
+      { name: "total", label: "Total", type: "currency" },
+      { name: "balance_due", label: "Balance Due", type: "currency" },
     ],
   },
 
@@ -864,16 +956,28 @@ export const entities: Record<string, EntityDef> = {
     label: "Payment Made",
     labelPlural: "Payments Made",
     module: "Purchases",
-    kind: "flat",
+    // "payment" gets a dedicated Record Payment form (search-to-select vendor, a live Open
+    // Bills table with per-bill allocation) instead of the generic flat form — mirrors
+    // payments-received's own kind exactly. Editing an existing payment still uses the
+    // generic form below (allocations aren't editable there — see RecordPaymentMadeForm.tsx
+    // and payments-made-api.ts).
+    kind: "payment",
     titleField: "payment_number",
     numberField: "payment_number",
     numberPrefix: "PAY",
     orderBy: "created_at desc",
-    listColumns: ["payment_number", "vendor_id", "payment_date", "amount", "payment_mode"],
+    // Read-only detail view (bill allocations + the auto-generated Journal) — see
+    // src/app/(app)/payments-made/[id]/page.tsx.
+    hasDetailView: true,
+    attachments: true,
+    listColumns: ["payment_number", "vendor_id", "payment_date", "amount", "payment_mode", "status"],
     fields: [
       { name: "payment_number", label: "Payment #", type: "text", placeholder: "Auto-generated if left blank" },
       { name: "vendor_id", label: "Vendor", type: "select", refEntity: "vendors", refLabelField: "display_name", required: true },
-      { name: "bill_id", label: "Against Bill", type: "select", refEntity: "bills", refLabelField: "bill_number" },
+      // Superseded by bill_payment_allocations (see the migration this was added alongside) —
+      // a payment can now settle multiple open bills, not just one, so this single-select FK
+      // is kept only for any pre-existing rows and is never written by RecordPaymentMadeForm.
+      { name: "bill_id", label: "Against Bill (legacy)", type: "select", refEntity: "bills", refLabelField: "bill_number" },
       // required — see the same fix + comment on delivery-challans' challan_date.
       { name: "payment_date", label: "Payment Date", type: "date", required: true },
       { name: "amount", label: "Amount", type: "currency", required: true, default: 0 },
@@ -894,6 +998,16 @@ export const entities: Record<string, EntityDef> = {
       // required "Deposit To".
       { name: "bank_account_id", label: "Paid Through", type: "select", refEntity: "bank-accounts", refLabelField: "account_name", required: true },
       { name: "reference_number", label: "Reference #", type: "text" },
+      {
+        name: "status",
+        label: "Status",
+        type: "select",
+        default: "paid",
+        options: [
+          { label: "Draft", value: "draft" },
+          { label: "Paid", value: "paid" },
+        ],
+      },
       { name: "notes", label: "Notes", type: "textarea" },
     ],
   },
@@ -904,17 +1018,28 @@ export const entities: Record<string, EntityDef> = {
     label: "Vendor Credit",
     labelPlural: "Vendor Credits",
     module: "Purchases",
-    kind: "flat",
+    // "document" only for [slug]-dispatch purposes (see the same comment on bills above) —
+    // creation/edit goes through the bespoke VendorCreditForm.tsx + /api/vendor-credits (see
+    // vendor-credits-api.ts), not the generic flat form this used to be. This entity never had
+    // line items before this build (see the migration that added vendor_credit_items).
+    kind: "document",
     titleField: "credit_note_number",
     numberField: "credit_note_number",
     numberPrefix: "VC",
     orderBy: "created_at desc",
+    // Read-only detail view (item table + Journal) instead of going straight to the edit
+    // form — see src/app/(app)/vendor-credits/[id]/page.tsx.
+    hasDetailView: true,
+    attachments: true,
     listColumns: ["credit_note_number", "vendor_id", "credit_date", "status", "total"],
     fields: [
       { name: "credit_note_number", label: "Vendor Credit #", type: "text", placeholder: "Auto-generated if left blank" },
       { name: "vendor_id", label: "Vendor", type: "select", refEntity: "vendors", refLabelField: "display_name", required: true },
       // required — see the same fix + comment on delivery-challans' challan_date.
       { name: "credit_date", label: "Date", type: "date", required: true },
+      { name: "order_number", label: "Order Number", type: "text" },
+      { name: "subject", label: "Subject", type: "text" },
+      { name: "accounts_payable_account_id", label: "Accounts Payable", type: "select", refEntity: "chart-of-accounts", refLabelField: "name" },
       {
         name: "status",
         label: "Status",
@@ -1136,6 +1261,39 @@ export const entities: Record<string, EntityDef> = {
       { name: "name", label: "Term Name", type: "text", required: true, placeholder: "Net 30" },
       { name: "is_default", label: "Set as default payment term", type: "boolean", default: false },
       { name: "is_active", label: "Active", type: "boolean", default: true },
+    ],
+  },
+
+  // The "Active Taxes" / "Tax Rates" list under Settings -> Taxes. Plain flat entity, same
+  // shape as currencies/payment-terms above — no line items, no GL postings of its own.
+  // "Default Tax" (is_default) is the rate the reference screenshot's footer note describes
+  // ("used for transactions involving a customer whose 'Tax Preference' isn't configured") —
+  // this build doesn't yet have a per-customer Tax Preference field, so the flag is stored and
+  // shown but nothing reads it automatically yet; disclosed, not wired into document tax
+  // calculation, which still uses its own free-entry percent field (DocumentForm.tsx) exactly
+  // as it did before this table existed.
+  "tax-rates": {
+    key: "tax-rates",
+    table: "tax_rates",
+    label: "Tax",
+    labelPlural: "Tax Rates",
+    module: "Settings",
+    kind: "flat",
+    titleField: "name",
+    orderBy: "created_at asc",
+    listColumns: ["name", "country_region", "rate", "is_default"],
+    fields: [
+      { name: "name", label: "Tax Name", type: "text", required: true, placeholder: "e.g. Standard Rate" },
+      { name: "country_region", label: "Country/Region", type: "select", options: COUNTRY_OPTIONS },
+      { name: "rate", label: "Rate (%)", type: "number", required: true, default: 0 },
+      {
+        name: "is_default",
+        label: "Default Tax",
+        type: "boolean",
+        default: false,
+        helpText: "Used for transactions involving a customer whose Tax Preference isn't configured.",
+        booleanLabels: { true: "Default Tax", false: "—" },
+      },
     ],
   },
 

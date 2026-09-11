@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool, query, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
 import { extractHeaderValues, type CustomerHeaderInput, type ContactPersonInput } from "@/lib/customers";
+import { syncOpeningBalanceJournal } from "@/lib/auto-journal";
 
 interface Body {
   header: CustomerHeaderInput;
@@ -65,6 +66,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       );
     }
 
+    // opening_balance may have changed — rebuild the consolidated Opening Balances journal's
+    // Accounts Receivable line so the GL stays in sync with this customer's saved value.
+    await syncOpeningBalanceJournal(client, ctx.orgId);
+
     await client.query("COMMIT");
     return NextResponse.json({ id: params.id });
   } catch (err) {
@@ -79,6 +84,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  await pool.query(`DELETE FROM customers WHERE organization_id = $1 AND id = $2`, [ctx.orgId, params.id]);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM customers WHERE organization_id = $1 AND id = $2`, [ctx.orgId, params.id]);
+    // Deleting a customer removes its opening_balance from the AR total — rebuild the
+    // consolidated Opening Balances journal so it doesn't keep counting the deleted row.
+    await syncOpeningBalanceJournal(client, ctx.orgId);
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error(err);
+    return NextResponse.json({ error: "Could not delete this customer." }, { status: 500 });
+  } finally {
+    client.release();
+  }
+
   return NextResponse.json({ ok: true });
 }

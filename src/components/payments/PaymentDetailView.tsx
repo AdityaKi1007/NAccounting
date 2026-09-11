@@ -2,10 +2,13 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, Pencil, Download, Printer } from "lucide-react";
+import { ChevronLeft, Pencil, Download, Printer, Mail } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { generatePdfBlob, downloadPdfBlob } from "@/lib/pdf-export";
 import JournalPanel, { type JournalLineData } from "@/components/accounting/JournalPanel";
 import AttachmentsField from "@/components/attachments/AttachmentsField";
+import EmailsList from "@/components/emails/EmailsList";
+import SendEmailModal from "@/components/emails/SendEmailModal";
 
 interface PaymentData {
   id: string;
@@ -36,6 +39,7 @@ function paymentModeLabel(mode: string) {
 export default function PaymentDetailView({
   payment,
   customerName,
+  customerEmail,
   customerAddressLines,
   bankAccountName,
   org,
@@ -45,6 +49,7 @@ export default function PaymentDetailView({
 }: {
   payment: PaymentData;
   customerName: string;
+  customerEmail: string | null;
   customerAddressLines: string[];
   bankAccountName: string;
   org: { name: string; addressLines: string[] };
@@ -54,6 +59,8 @@ export default function PaymentDetailView({
 }) {
   const printRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailRefreshSignal, setEmailRefreshSignal] = useState(0);
 
   const totalApplied = allocations.reduce((sum, a) => sum + a.amount, 0);
   const overpayment = Math.max(0, payment.amount - totalApplied);
@@ -62,30 +69,8 @@ export default function PaymentDetailView({
     if (!printRef.current) return;
     setDownloading(true);
     try {
-      // See InvoiceDetailView.tsx for why this imports the dist path directly rather than
-      // the bare "jspdf"/"html2canvas" specifiers.
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf/dist/jspdf.es.min.js"),
-      ]);
-      const canvas = await html2canvas(printRef.current, { scale: 2, backgroundColor: "#ffffff" });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({ unit: "pt", format: "a4" });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      while (heightLeft > 0) {
-        position -= pageHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      pdf.save(`${payment.paymentNumber}.pdf`);
+      const blob = await generatePdfBlob(printRef.current);
+      downloadPdfBlob(blob, `${payment.paymentNumber}.pdf`);
     } finally {
       setDownloading(false);
     }
@@ -119,6 +104,9 @@ export default function PaymentDetailView({
             </button>
             <button type="button" onClick={downloadPdf} disabled={downloading} className="btn-primary">
               <Download size={14} /> {downloading ? "Preparing..." : "Download PDF"}
+            </button>
+            <button type="button" onClick={() => setEmailModalOpen(true)} className="btn-secondary">
+              <Mail size={14} /> Send Email
             </button>
           </div>
         </div>
@@ -237,7 +225,25 @@ export default function PaymentDetailView({
           <h2 className="mb-3 text-sm font-semibold text-ink-800">Attachments</h2>
           <AttachmentsField entityType="payments-received" entityId={payment.id} label="" />
         </div>
+
+        <div className="no-print mt-6 card p-5">
+          <h2 className="mb-3 text-sm font-semibold text-ink-800">Emails</h2>
+          <EmailsList entityType="payments-received" entityId={payment.id} refreshSignal={emailRefreshSignal} />
+        </div>
       </div>
+
+      <SendEmailModal
+        open={emailModalOpen}
+        onClose={() => setEmailModalOpen(false)}
+        entityType="payments-received"
+        entityId={payment.id}
+        docNumber={payment.paymentNumber}
+        orgName={org.name}
+        partyName={customerName}
+        defaultToEmail={customerEmail}
+        printRef={printRef}
+        onSent={() => setEmailRefreshSignal((n) => n + 1)}
+      />
     </div>
   );
 }

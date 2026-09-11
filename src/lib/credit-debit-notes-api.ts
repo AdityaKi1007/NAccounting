@@ -43,6 +43,48 @@ interface InvoiceRow {
   balance_due: string;
 }
 
+/** Lists credit/debit note headers for the org, newest first — used by the v1 API's
+ * GET /api/v1/credit-notes list endpoint (kind is always "credit" there; "debit" is kept
+ * generic here in case debit notes are ever exposed the same way, per the disclosed scope
+ * decision that only Credit Memos were asked for this round). No line items — see
+ * getCreditOrDebitNote below for the single-record shape with line_items attached. */
+export async function listCreditOrDebitNotes(kind: "credit" | "debit", orgId: string) {
+  const table = kind === "credit" ? "credit_notes" : "debit_notes";
+  const dateField = kind === "credit" ? "credit_note_date" : "debit_note_date";
+  const numberField = kind === "credit" ? "credit_note_number" : "debit_note_number";
+  const result = await pool.query(
+    `SELECT id, ${numberField} AS number, customer_id, invoice_id, ${dateField} AS note_date, status,
+            subtotal, tax_total, total, balance_applied, reference_number, reason, created_at
+       FROM ${table} WHERE organization_id = $1 ORDER BY created_at DESC`,
+    [orgId]
+  );
+  return result.rows;
+}
+
+/** Single credit/debit note with its line items attached (line_items) — the v1 API's
+ * GET /api/v1/credit-notes/{id} shape. Returns null if not found in this org. */
+export async function getCreditOrDebitNote(kind: "credit" | "debit", orgId: string, noteId: string) {
+  const table = kind === "credit" ? "credit_notes" : "debit_notes";
+  const itemsTable = kind === "credit" ? "credit_note_items" : "debit_note_items";
+  const parentField = kind === "credit" ? "credit_note_id" : "debit_note_id";
+  const dateField = kind === "credit" ? "credit_note_date" : "debit_note_date";
+  const numberField = kind === "credit" ? "credit_note_number" : "debit_note_number";
+
+  const header = await queryOne<Record<string, unknown>>(
+    `SELECT id, ${numberField} AS number, customer_id, invoice_id, ${dateField} AS note_date, status,
+            subtotal, tax_total, total, balance_applied, reference_number, reason, created_at
+       FROM ${table} WHERE id = $1 AND organization_id = $2`,
+    [noteId, orgId]
+  );
+  if (!header) return null;
+
+  const items = await pool.query(
+    `SELECT id, item_id, description, quantity, rate, amount FROM ${itemsTable} WHERE ${parentField} = $1 ORDER BY id`,
+    [noteId]
+  );
+  return { ...header, line_items: items.rows };
+}
+
 /** kind: "credit" reduces the invoice's balance_due (capped at 0 — a credit note can't push
  * balance_due negative in this simplified, apply-directly model); "debit" increases it
  * (uncapped — it's additional billing, there's no ceiling on what a customer can owe). */

@@ -25,6 +25,7 @@ interface CustomerRow {
   company_name: string | null;
   billing_address: string | null;
   shipping_address: string | null;
+  email: string | null;
 }
 
 interface OrgRow {
@@ -65,7 +66,7 @@ export default async function SalesOrderDetailPage({ params }: { params: { id: s
   const [customer, org, lines, vendors] = await Promise.all([
     so.customer_id
       ? queryOne<CustomerRow>(
-          `SELECT display_name, company_name, billing_address, shipping_address FROM customers WHERE id = $1 AND organization_id = $2`,
+          `SELECT display_name, company_name, billing_address, shipping_address, email FROM customers WHERE id = $1 AND organization_id = $2`,
           [so.customer_id, ctx.orgId]
         )
       : Promise.resolve(null),
@@ -112,6 +113,7 @@ export default async function SalesOrderDetailPage({ params }: { params: { id: s
               companyName: customer.company_name,
               billingAddress: customer.billing_address,
               shippingAddress: customer.shipping_address,
+              email: customer.email,
             }
           : null
       }

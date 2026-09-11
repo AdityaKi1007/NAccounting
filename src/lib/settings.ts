@@ -23,11 +23,17 @@ export interface SettingsItem {
     | "branding"
     | "roles-list"
     | "tax-settings"
+    | "tax-rates-list"
+    | "tax-preferences"
+    | "corporate-tax"
     | "currencies-list"
     | "payment-terms-list"
     | "reminders"
     | "api-keys"
-    | "number-series";
+    | "number-series"
+    | "opening-balances"
+    | "email-smtp"
+    | "file-storage";
 }
 
 export interface SettingsGroup {
@@ -67,20 +73,43 @@ export const settingsGroups: SettingsGroup[] = [
   {
     // A dedicated top-level group (matching the real Zoho Books "Taxes" section, which sits
     // beside Users & Roles rather than inside it) — previously this was a single "Taxes" item
-    // buried under Users & Roles. Only "Tax Settings" is implemented here; "Tax Rates" (Active
-    // Taxes) and "Other Taxes > Corporate Tax" from the reference screenshots are NOT built —
-    // no field/behavior spec was given for those, so they're intentionally left as future scope
-    // rather than guessed at. They can be added as further items in this same group later.
+    // buried under Users & Roles. Added 2026-09-10: Tax Rates, Tax Preferences and Corporate
+    // Tax, rounding out the group to match the reference screenshots (EmaraTax isn't built —
+    // it's a real UAE government e-invoicing integration, out of scope, not asked for). The
+    // reference screenshots show Corporate Tax under its own "OTHER TAXES" sub-heading inside
+    // a dedicated Taxes sidebar — this app's settings navigation doesn't have a per-group
+    // sidebar at all (every group is a flat list of items reached via the main Settings page,
+    // see settings/page.tsx), so Corporate Tax is listed here as a plain item instead of
+    // introducing a new sidebar paradigm just for this one group; its own page still carries
+    // an "Other Taxes" label in its description so the distinction isn't lost.
     slug: "taxes",
     label: "Taxes",
     icon: Percent,
     section: "organization",
     items: [
       {
+        slug: "tax-rates",
+        label: "Tax Rates",
+        description: "The tax rates available when creating a transaction.",
+        view: "tax-rates-list",
+      },
+      {
         slug: "tax-settings",
         label: "Tax Settings",
         description: "VAT/tax registration details and return reporting period.",
         view: "tax-settings",
+      },
+      {
+        slug: "tax-preferences",
+        label: "Tax Preferences",
+        description: "Optional VAT calculation schemes, such as the Profit Margin Scheme.",
+        view: "tax-preferences",
+      },
+      {
+        slug: "corporate-tax",
+        label: "Corporate Tax",
+        description: "Other Taxes — corporate tax registration, rate and GL accounts.",
+        view: "corporate-tax",
       },
     ],
   },
@@ -93,7 +122,7 @@ export const settingsGroups: SettingsGroup[] = [
       { slug: "general", label: "General", description: "Date format, time zone and organization defaults." },
       { slug: "currencies", label: "Currencies", description: "Currencies you transact in and exchange rates.", view: "currencies-list" },
       { slug: "payment-terms", label: "Payment Terms", description: "Default due-date terms for invoices and bills.", view: "payment-terms-list" },
-      { slug: "opening-balances", label: "Opening Balances", description: "Starting balances when you switched to NeoAccountingZ." },
+      { slug: "opening-balances", label: "Opening Balances", description: "Starting balances when you switched to NeoAccountingZ.", view: "opening-balances" },
       { slug: "reminders", label: "Reminders", description: "Automatic payment reminder schedules.", view: "reminders" },
       { slug: "customer-portal", label: "Customer Portal", description: "What customers can see and do online." },
       { slug: "vendor-portal", label: "Vendor Portal", description: "What vendors can see and do online." },
@@ -178,6 +207,8 @@ export const settingsGroups: SettingsGroup[] = [
     section: "module",
     items: [
       { slug: "api-keys", label: "API Keys", description: "Generate keys so third-party systems can send invoices, receipts, customers and sales orders over REST.", view: "api-keys" },
+      { slug: "email-smtp", label: "Email (SMTP)", description: "Connect your mail server so invoices, receipts and other emails send from your own address.", view: "email-smtp" },
+      { slug: "file-storage", label: "File Storage (S3)", description: "Connect an S3 bucket so file attachments across every module are stored there.", view: "file-storage" },
       { slug: "whatsapp", label: "WhatsApp", description: "Send invoices, reminders and receipts over WhatsApp." },
       { slug: "sms", label: "SMS", description: "Send payment reminders and alerts over SMS." },
     ],

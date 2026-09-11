@@ -9,11 +9,17 @@ import CompanyProfileForm from "@/components/settings/CompanyProfileForm";
 import UsersList from "@/components/settings/UsersList";
 import BrandingForm from "@/components/settings/BrandingForm";
 import TaxSettingsForm from "@/components/settings/TaxSettingsForm";
+import TaxPreferencesForm from "@/components/settings/TaxPreferencesForm";
+import CorporateTaxForm from "@/components/settings/CorporateTaxForm";
 import RemindersManager from "@/components/settings/RemindersManager";
 import SettingsEntityList from "@/components/settings/SettingsEntityList";
 import ApiKeysManager from "@/components/settings/ApiKeysManager";
 import NumberSeriesSettings from "@/components/settings/NumberSeriesSettings";
+import OpeningBalancesManager from "@/components/settings/OpeningBalancesManager";
+import EmailSmtpSettingsForm from "@/components/settings/EmailSmtpSettingsForm";
+import S3StorageSettingsForm from "@/components/settings/S3StorageSettingsForm";
 import { getOrCreateNumberSeries, NUMBER_SERIES_MODULES } from "@/lib/number-series";
+import { accountCategory } from "@/lib/accounts";
 
 export default async function SettingsItemPage({
   params,
@@ -30,6 +36,40 @@ export default async function SettingsItemPage({
     item.view === "company-profile"
       ? (await queryOne<{ org_seq: string }>(`SELECT org_seq FROM organizations WHERE id = $1`, [ctx.orgId]))
           ?.org_seq
+      : null;
+
+  const smtpRow =
+    item.view === "email-smtp"
+      ? await queryOne<{
+          smtp_host: string | null;
+          smtp_port: number | null;
+          smtp_user: string | null;
+          smtp_from: string | null;
+          smtp_secure: boolean;
+          password_set: boolean;
+        }>(
+          `SELECT smtp_host, smtp_port, smtp_user, smtp_from, smtp_secure,
+                  (smtp_password_encrypted IS NOT NULL) AS password_set
+           FROM organizations WHERE id = $1`,
+          [ctx.orgId]
+        )
+      : null;
+
+  const s3Row =
+    item.view === "file-storage"
+      ? await queryOne<{
+          s3_access_key_id: string | null;
+          s3_region: string | null;
+          s3_bucket_name: string | null;
+          s3_endpoint: string | null;
+          s3_force_path_style: boolean;
+          secret_key_set: boolean;
+        }>(
+          `SELECT s3_access_key_id, s3_region, s3_bucket_name, s3_endpoint, s3_force_path_style,
+                  (s3_secret_access_key_encrypted IS NOT NULL) AS secret_key_set
+           FROM organizations WHERE id = $1`,
+          [ctx.orgId]
+        )
       : null;
 
   return (
@@ -150,6 +190,60 @@ export default async function SettingsItemPage({
           />
         )}
 
+        {item.view === "tax-rates-list" && (
+          <div className="space-y-3">
+            <SettingsEntityList entityKey="tax-rates" orgId={ctx.orgId} />
+            <p className="text-xs text-gray-400">
+              Note: <span className="font-medium text-green-700">Default Tax</span> rate will be used for
+              transactions involving a customer whose Tax Preference isn&apos;t configured.
+            </p>
+          </div>
+        )}
+
+        {item.view === "tax-preferences" && (
+          <TaxPreferencesForm
+            organization={
+              (await queryOne(`SELECT id, profit_margin_scheme_enabled FROM organizations WHERE id = $1`, [
+                ctx.orgId,
+              ])) as { id: string; profit_margin_scheme_enabled: boolean }
+            }
+            canManage={ctx.role === "owner" || ctx.role === "admin"}
+          />
+        )}
+
+        {item.view === "corporate-tax" && (
+          <CorporateTaxForm
+            organization={
+              (await queryOne(
+                `SELECT id, corporate_tax_registration_number, corporate_tax_rate, corporate_tax_first_return_from,
+                        corporate_tax_liability_account_id, corporate_tax_liability_offset_account_id,
+                        corporate_tax_add_back_expense_account_id, corporate_tax_income_deducted_account_id,
+                        corporate_tax_entertainment_expenditure_account_id, corporate_tax_net_interest_expenditure_account_id
+                 FROM organizations WHERE id = $1`,
+                [ctx.orgId]
+              )) as {
+                id: string;
+                corporate_tax_registration_number: string | null;
+                corporate_tax_rate: number | string;
+                corporate_tax_first_return_from: string | Date | null;
+                corporate_tax_liability_account_id: string | null;
+                corporate_tax_liability_offset_account_id: string | null;
+                corporate_tax_add_back_expense_account_id: string | null;
+                corporate_tax_income_deducted_account_id: string | null;
+                corporate_tax_entertainment_expenditure_account_id: string | null;
+                corporate_tax_net_interest_expenditure_account_id: string | null;
+              }
+            }
+            accountOptions={(
+              (await query(
+                `SELECT id, code, name FROM accounts WHERE organization_id = $1 AND is_active = true ORDER BY code ASC NULLS LAST, name ASC`,
+                [ctx.orgId]
+              )) as { id: string; code: string | null; name: string }[]
+            ).map((a) => ({ id: a.id, label: a.code ? `${a.code} - ${a.name}` : a.name }))}
+            canManage={ctx.role === "owner" || ctx.role === "admin"}
+          />
+        )}
+
         {item.view === "roles-list" && <SettingsEntityList entityKey="roles" orgId={ctx.orgId} />}
         {item.view === "currencies-list" && <SettingsEntityList entityKey="currencies" orgId={ctx.orgId} />}
         {item.view === "payment-terms-list" && <SettingsEntityList entityKey="payment-terms" orgId={ctx.orgId} />}
@@ -190,6 +284,92 @@ export default async function SettingsItemPage({
           />
         )}
 
+        {item.view === "opening-balances" && (
+          <OpeningBalancesManager
+            currency={(await queryOne<{ currency: string }>(`SELECT currency FROM organizations WHERE id = $1`, [ctx.orgId]))?.currency ?? "AED"}
+            migrationDate={
+              (
+                await queryOne<{ opening_balance_migration_date: string | Date | null }>(
+                  `SELECT opening_balance_migration_date FROM organizations WHERE id = $1`,
+                  [ctx.orgId]
+                )
+              )?.opening_balance_migration_date ?? null
+            }
+            journalLines={
+              (await query(
+                `SELECT jl.account_id, a.code, a.name, a.type, jl.debit, jl.credit, jl.description
+                 FROM journal_lines jl
+                 JOIN manual_journals mj ON mj.id = jl.journal_id
+                 JOIN accounts a ON a.id = jl.account_id
+                 WHERE mj.organization_id = $1 AND mj.is_opening_balance = true
+                 ORDER BY jl.id ASC`,
+                [ctx.orgId]
+              )) as {
+                account_id: string;
+                code: string | null;
+                name: string;
+                type: string;
+                debit: string;
+                credit: string;
+                description: string;
+              }[]
+            }
+            editableAccounts={(
+              (
+                await query(
+                  `SELECT a.id, a.code, a.name, a.type,
+                          COALESCE(aob.debit, 0) AS debit, COALESCE(aob.credit, 0) AS credit
+                   FROM accounts a
+                   LEFT JOIN account_opening_balances aob
+                     ON aob.account_id = a.id AND aob.organization_id = a.organization_id
+                   WHERE a.organization_id = $1 AND a.is_active = true
+                     AND a.type NOT IN ('accounts_receivable', 'accounts_payable')
+                   ORDER BY a.code ASC NULLS LAST, a.name ASC`,
+                  [ctx.orgId]
+                )
+              ) as { id: string; code: string | null; name: string; type: string; debit: string; credit: string }[]
+            )
+              .filter((a) => {
+                const cat = accountCategory(a.type);
+                return cat === "asset" || cat === "liability" || cat === "equity";
+              })
+              .map((a) => ({
+                id: a.id,
+                code: a.code,
+                name: a.name,
+                type: a.type,
+                category: accountCategory(a.type) as "asset" | "liability" | "equity",
+                debit: Number(a.debit),
+                credit: Number(a.credit),
+              }))}
+            arAccount={
+              (await queryOne<{ id: string; code: string | null; name: string }>(
+                `SELECT id, code, name FROM accounts WHERE organization_id = $1 AND type = 'accounts_receivable' AND is_active = true
+                 ORDER BY code ASC NULLS LAST LIMIT 1`,
+                [ctx.orgId]
+              )) ?? null
+            }
+            apAccount={
+              (await queryOne<{ id: string; code: string | null; name: string }>(
+                `SELECT id, code, name FROM accounts WHERE organization_id = $1 AND type = 'accounts_payable' AND is_active = true
+                 ORDER BY code ASC NULLS LAST LIMIT 1`,
+                [ctx.orgId]
+              )) ?? null
+            }
+            customerOpeningTotal={Number(
+              (await queryOne<{ sum: string | null }>(`SELECT COALESCE(SUM(opening_balance), 0) AS sum FROM customers WHERE organization_id = $1`, [
+                ctx.orgId,
+              ]))?.sum ?? 0
+            )}
+            vendorOpeningTotal={Number(
+              (await queryOne<{ sum: string | null }>(`SELECT COALESCE(SUM(opening_balance), 0) AS sum FROM vendors WHERE organization_id = $1`, [
+                ctx.orgId,
+              ]))?.sum ?? 0
+            )}
+            canManage={ctx.role === "owner" || ctx.role === "admin"}
+          />
+        )}
+
         {item.view === "api-keys" && (
           <ApiKeysManager
             keys={
@@ -199,6 +379,41 @@ export default async function SettingsItemPage({
                 [ctx.orgId]
               )) as never[]
             }
+          />
+        )}
+
+        {item.view === "email-smtp" && (
+          <EmailSmtpSettingsForm
+            initial={(() => {
+              const row = smtpRow;
+              return {
+                smtp_host: row?.smtp_host ?? "",
+                smtp_port: row?.smtp_port ?? null,
+                smtp_user: row?.smtp_user ?? "",
+                smtp_from: row?.smtp_from ?? "",
+                smtp_secure: Boolean(row?.smtp_secure),
+                password_set: Boolean(row?.password_set),
+              };
+            })()}
+            defaultTestEmail={ctx.userEmail}
+            canManage={ctx.role === "owner" || ctx.role === "admin"}
+          />
+        )}
+
+        {item.view === "file-storage" && (
+          <S3StorageSettingsForm
+            initial={(() => {
+              const row = s3Row;
+              return {
+                s3_access_key_id: row?.s3_access_key_id ?? "",
+                s3_region: row?.s3_region ?? "",
+                s3_bucket_name: row?.s3_bucket_name ?? "",
+                s3_endpoint: row?.s3_endpoint ?? "",
+                s3_force_path_style: Boolean(row?.s3_force_path_style),
+                secret_key_set: Boolean(row?.secret_key_set),
+              };
+            })()}
+            canManage={ctx.role === "owner" || ctx.role === "admin"}
           />
         )}
 

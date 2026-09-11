@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
   const key = buildAttachmentKey(ctx.orgId, entityType, entityId, file.name);
 
   try {
-    await putAttachmentObject(key, buffer, file.type);
+    await putAttachmentObject(ctx.orgId, key, buffer, file.type);
   } catch (err) {
     if (err instanceof AttachmentsNotConfiguredError) {
       return NextResponse.json({ error: err.message }, { status: 503 });

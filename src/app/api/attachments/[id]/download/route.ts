@@ -17,7 +17,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (!attachment) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   try {
-    const url = await getAttachmentDownloadUrl(attachment.file_key, attachment.file_name);
+    const url = await getAttachmentDownloadUrl(ctx.orgId, attachment.file_key, attachment.file_name);
     return NextResponse.redirect(url);
   } catch (err) {
     if (err instanceof AttachmentsNotConfiguredError) {

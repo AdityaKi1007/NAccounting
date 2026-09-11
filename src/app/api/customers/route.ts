@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
 import { extractHeaderValues, type CustomerHeaderInput, type ContactPersonInput } from "@/lib/customers";
+import { syncOpeningBalanceJournal } from "@/lib/auto-journal";
 
 interface Body {
   header: CustomerHeaderInput;
@@ -44,6 +45,10 @@ export async function POST(req: NextRequest) {
         [customerId, c.salutation || null, c.first_name || null, c.last_name || null, c.email || null, c.work_phone || null, c.mobile || null, c.designation || null, c.department || null]
       );
     }
+
+    // A newly created customer's opening_balance feeds the consolidated Opening Balances
+    // journal's Accounts Receivable line — rebuild it so the GL reflects this customer too.
+    await syncOpeningBalanceJournal(client, ctx.orgId);
 
     await client.query("COMMIT");
     return NextResponse.json({ id: customerId }, { status: 201 });

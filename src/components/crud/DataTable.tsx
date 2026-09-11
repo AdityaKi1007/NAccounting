@@ -44,7 +44,10 @@ function renderCell(field: FieldDef | undefined, value: unknown, refOptions: Ref
   if (!field) return name === "created_at" ? formatDate(value) : String(value);
   if (field.type === "currency") return formatCurrency(value);
   if (field.type === "date") return formatDate(value);
-  if (field.type === "boolean") return value ? <StatusPill label="Active" tone="green" /> : <StatusPill label="Inactive" tone="gray" />;
+  if (field.type === "boolean") {
+    const labels = field.booleanLabels ?? { true: "Active", false: "Inactive" };
+    return value ? <StatusPill label={labels.true} tone="green" /> : <StatusPill label={labels.false} tone="gray" />;
+  }
   if (field.refEntity) {
     const opt = (refOptions[name] ?? []).find((o) => o.value === String(value));
     if (!opt) return "-";

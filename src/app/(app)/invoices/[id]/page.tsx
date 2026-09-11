@@ -27,6 +27,7 @@ interface CustomerRow {
   display_name: string;
   company_name: string | null;
   billing_address: string | null;
+  email: string | null;
 }
 
 interface OrgRow {
@@ -71,7 +72,7 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
 
   const [customer, org, lines, payments, journalLines, salesOrder] = await Promise.all([
     queryOne<CustomerRow>(
-      `SELECT display_name, company_name, billing_address FROM customers WHERE id = $1 AND organization_id = $2`,
+      `SELECT display_name, company_name, billing_address, email FROM customers WHERE id = $1 AND organization_id = $2`,
       [invoice.customer_id, ctx.orgId]
     ),
     queryOne<OrgRow>(
@@ -132,6 +133,7 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
               displayName: customer.display_name,
               companyName: customer.company_name,
               billingAddress: customer.billing_address,
+              email: customer.email,
             }
           : null
       }

@@ -25,7 +25,15 @@ interface Props {
 function initialValue(field: FieldDef, initialData?: Record<string, unknown> | null) {
   if (initialData && field.name in initialData && initialData[field.name] !== null) {
     const v = initialData[field.name];
-    if (field.type === "date" && v) return String(v).slice(0, 10);
+    // Real pre-existing bug (found 2026-09-10 while building the Expense form): a `date`
+    // column comes straight off the pg row as a JS Date object (db.ts never overrides pg's
+    // default `date` type parser) — String(date) yields "Fri Sep 04 2026 00:00:00 GMT...",
+    // not the "YYYY-MM-DD" an <input type="date"> needs, so editing ANY flat entity's date
+    // field through this generic form silently showed the picker empty (mm/dd/yyyy) instead
+    // of the saved value. toISOString() is needed for the Date-object case; a value that's
+    // already a "YYYY-MM-DD"-prefixed string (e.g. initialData built from a JSON API
+    // response elsewhere) still just gets sliced as before.
+    if (field.type === "date" && v) return (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
     return v;
   }
   if (field.default !== undefined) return field.default;

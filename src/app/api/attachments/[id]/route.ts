@@ -18,7 +18,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (!attachment) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   try {
-    await deleteAttachmentObject(attachment.file_key);
+    await deleteAttachmentObject(ctx.orgId, attachment.file_key);
   } catch (err) {
     if (err instanceof AttachmentsNotConfiguredError) {
       return NextResponse.json({ error: err.message }, { status: 503 });

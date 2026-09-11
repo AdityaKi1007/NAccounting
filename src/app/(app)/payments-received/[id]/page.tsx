@@ -21,6 +21,7 @@ interface CustomerRow {
   display_name: string;
   company_name: string | null;
   billing_address: string | null;
+  email: string | null;
 }
 
 interface BankAccountRow {
@@ -64,7 +65,7 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
   const [customer, bankAccount, allocations, journalLines, org] = await Promise.all([
     payment.customer_id
       ? queryOne<CustomerRow>(
-          `SELECT display_name, company_name, billing_address FROM customers WHERE id = $1 AND organization_id = $2`,
+          `SELECT display_name, company_name, billing_address, email FROM customers WHERE id = $1 AND organization_id = $2`,
           [payment.customer_id, ctx.orgId]
         )
       : Promise.resolve(null),
@@ -112,6 +113,7 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
         notes: payment.notes,
       }}
       customerName={customer ? (customer.company_name ? `${customer.display_name} (${customer.company_name})` : customer.display_name) : "-"}
+      customerEmail={customer?.email ?? null}
       customerAddressLines={customer?.billing_address?.split("\n").filter(Boolean) ?? []}
       bankAccountName={bankAccount?.account_name ?? "-"}
       org={{

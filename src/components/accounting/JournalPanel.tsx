@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 
@@ -8,6 +9,12 @@ export interface JournalLineData {
   accountName: string;
   debit: number;
   credit: number;
+  /** When set, the account name links to its own detail page (/chart-of-accounts/[id]),
+   * which shows every journal line and expense posted against it — added for the Expense
+   * detail page so clicking the expense account navigates straight to its ledger. Optional
+   * and omitted by every other caller (invoices/payments/credit-debit notes), which keep
+   * rendering plain text exactly as before. */
+  accountId?: string | null;
 }
 
 /** Read-only double-entry view of the journal auto-generated for one invoice or payment (see
@@ -61,7 +68,15 @@ export default function JournalPanel({
             <tbody className="divide-y divide-gray-100">
               {lines.map((line, i) => (
                 <tr key={i}>
-                  <td className="py-1.5 text-ink-700">{line.accountName}</td>
+                  <td className="py-1.5 text-ink-700">
+                    {line.accountId ? (
+                      <Link href={`/chart-of-accounts/${line.accountId}`} className="text-brand-600 hover:underline">
+                        {line.accountName}
+                      </Link>
+                    ) : (
+                      line.accountName
+                    )}
+                  </td>
                   <td className="py-1.5 text-right text-ink-700">{line.debit > 0 ? formatCurrency(line.debit, currency) : "0.00"}</td>
                   <td className="py-1.5 text-right text-ink-700">{line.credit > 0 ? formatCurrency(line.credit, currency) : "0.00"}</td>
                 </tr>

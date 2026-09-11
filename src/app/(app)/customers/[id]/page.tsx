@@ -6,6 +6,7 @@ import { query, queryOne } from "@/lib/db";
 import { getEntity } from "@/lib/entities";
 import { formatCurrency, formatDate, titleCase } from "@/lib/format";
 import AttachmentsField from "@/components/attachments/AttachmentsField";
+import EmailsList from "@/components/emails/EmailsList";
 
 interface CustomerRow {
   id: string;
@@ -322,6 +323,11 @@ export default async function CustomerDetailPage({ params }: { params: { id: str
           <div className="card space-y-2 p-5">
             <h2 className="text-sm font-semibold text-ink-800">Documents</h2>
             <AttachmentsField entityType="customers" entityId={customer.id} label="" />
+          </div>
+
+          <div className="card space-y-2 p-5">
+            <h2 className="text-sm font-semibold text-ink-800">Emails</h2>
+            <EmailsList partyType="customer" partyId={customer.id} />
           </div>
 
           <div className="card space-y-2 p-5">

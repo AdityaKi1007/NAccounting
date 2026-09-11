@@ -14,9 +14,13 @@ import {
   XCircle,
   FileMinus,
   FilePlus,
+  Mail,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { generatePdfBlob, downloadPdfBlob } from "@/lib/pdf-export";
 import JournalPanel, { type JournalLineData } from "@/components/accounting/JournalPanel";
+import EmailsList from "@/components/emails/EmailsList";
+import SendEmailModal from "@/components/emails/SendEmailModal";
 
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-gray-100 text-gray-600",
@@ -44,6 +48,7 @@ interface CustomerData {
   displayName: string;
   companyName: string | null;
   billingAddress: string | null;
+  email: string | null;
 }
 
 interface LineData {
@@ -97,6 +102,8 @@ export default function InvoiceDetailView({
   const [menuOpen, setMenuOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailRefreshSignal, setEmailRefreshSignal] = useState(0);
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -134,38 +141,8 @@ export default function InvoiceDetailView({
     if (!printRef.current) return;
     setDownloading(true);
     try {
-      // Import the browser ESM build directly (not the bare "jspdf" specifier). jsPDF's
-      // package.json exposes a "node" export condition pointing at dist/jspdf.node.min.js,
-      // which pulls in canvg -> core-js. Next.js compiles this "use client" component's
-      // module graph with the server (node) resolver too, even though this code only ever
-      // runs in the browser inside a click handler — so the bare specifier drags that whole
-      // Node-only dependency chain into the server bundle for no reason, and if core-js is
-      // even slightly incomplete in node_modules (as can happen after an interrupted
-      // install) the build fails with "Module not found: Can't resolve
-      // '../internals/try-to-string'". Importing the dist path directly bypasses the
-      // exports-condition resolution entirely, so only the small browser build is ever used.
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf/dist/jspdf.es.min.js"),
-      ]);
-      const canvas = await html2canvas(printRef.current, { scale: 2, backgroundColor: "#ffffff" });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({ unit: "pt", format: "a4" });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      while (heightLeft > 0) {
-        position -= pageHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      pdf.save(`${invoice.invoiceNumber}.pdf`);
+      const blob = await generatePdfBlob(printRef.current);
+      downloadPdfBlob(blob, `${invoice.invoiceNumber}.pdf`);
     } finally {
       setDownloading(false);
     }
@@ -214,6 +191,17 @@ export default function InvoiceDetailView({
               </button>
               {menuOpen && (
                 <div className="absolute right-0 z-10 mt-1 w-56 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setEmailModalOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink-700 hover:bg-gray-50"
+                  >
+                    <Mail size={14} /> Send Email
+                  </button>
+                  <div className="my-1 border-t border-gray-100" />
                   {invoice.status === "draft" || invoice.status === "void" ? (
                     <p className="px-3 py-2 text-xs text-gray-400">
                       Credit/Debit notes can only be created against an invoice that has been sent.
@@ -406,6 +394,26 @@ export default function InvoiceDetailView({
           </div>
         </div>
       </div>
+
+      <div className="no-print px-6 pb-6">
+        <div className="card p-5">
+          <h2 className="mb-3 text-sm font-semibold text-ink-800">Emails</h2>
+          <EmailsList entityType="invoices" entityId={invoice.id} refreshSignal={emailRefreshSignal} />
+        </div>
+      </div>
+
+      <SendEmailModal
+        open={emailModalOpen}
+        onClose={() => setEmailModalOpen(false)}
+        entityType="invoices"
+        entityId={invoice.id}
+        docNumber={invoice.invoiceNumber}
+        orgName={org.name}
+        partyName={billToName}
+        defaultToEmail={customer?.email ?? null}
+        printRef={printRef}
+        onSent={() => setEmailRefreshSignal((n) => n + 1)}
+      />
     </div>
   );
 }

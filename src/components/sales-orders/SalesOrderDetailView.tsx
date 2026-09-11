@@ -13,10 +13,14 @@ import {
   FileText,
   ShoppingBag,
   Trash2,
+  Mail,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { generatePdfBlob, downloadPdfBlob } from "@/lib/pdf-export";
 import Modal from "@/components/ui/Modal";
 import AttachmentsField from "@/components/attachments/AttachmentsField";
+import EmailsList from "@/components/emails/EmailsList";
+import SendEmailModal from "@/components/emails/SendEmailModal";
 
 interface SalesOrderData {
   id: string;
@@ -39,6 +43,7 @@ interface CustomerData {
   companyName: string | null;
   billingAddress: string | null;
   shippingAddress: string | null;
+  email: string | null;
 }
 
 interface LineData {
@@ -85,6 +90,8 @@ export default function SalesOrderDetailView({
   const [vendorModalOpen, setVendorModalOpen] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailRefreshSignal, setEmailRefreshSignal] = useState(0);
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -98,32 +105,8 @@ export default function SalesOrderDetailView({
     if (!printRef.current) return;
     setDownloading(true);
     try {
-      // Same dynamic-import pattern used across the app's other PDF exports (invoices,
-      // payment receipts) — importing jsPDF's browser dist path directly avoids dragging its
-      // Node-only "node" export condition (canvg/core-js) into the server bundle. See
-      // InvoiceDetailView.tsx for the full rationale.
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf/dist/jspdf.es.min.js"),
-      ]);
-      const canvas = await html2canvas(printRef.current, { scale: 2, backgroundColor: "#ffffff" });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({ unit: "pt", format: "a4" });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      while (heightLeft > 0) {
-        position -= pageHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      pdf.save(`${salesOrder.soNumber}.pdf`);
+      const blob = await generatePdfBlob(printRef.current);
+      downloadPdfBlob(blob, `${salesOrder.soNumber}.pdf`);
     } finally {
       setDownloading(false);
     }
@@ -254,6 +237,17 @@ export default function SalesOrderDetailView({
               </button>
               {menuOpen && (
                 <div className="absolute right-0 z-10 mt-1 w-56 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setEmailModalOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink-700 hover:bg-gray-50"
+                  >
+                    <Mail size={14} /> Send Email
+                  </button>
+                  <div className="my-1 border-t border-gray-100" />
                   {salesOrder.convertedInvoiceId ? (
                     <Link
                       href={`/invoices/${salesOrder.convertedInvoiceId}`}
@@ -321,7 +315,7 @@ export default function SalesOrderDetailView({
               <p className="text-sm text-gray-500">Send this Sales Order to your customer, or mark it as Confirmed.</p>
             </div>
             <div className="flex items-center gap-2">
-              <button type="button" onClick={downloadPdf} disabled={downloading} className="btn-secondary">
+              <button type="button" onClick={() => setEmailModalOpen(true)} className="btn-secondary">
                 Send Sales Order
               </button>
               <button type="button" onClick={() => setStatus("confirmed")} disabled={updating} className="btn-primary">
@@ -464,12 +458,29 @@ export default function SalesOrderDetailView({
         </div>
       </div>
 
-      <div className="no-print px-6 pb-6">
+      <div className="no-print space-y-6 px-6 pb-6">
         <div className="card p-5">
           <h2 className="mb-3 text-sm font-semibold text-ink-800">Attachments</h2>
           <AttachmentsField entityType="sales-orders" entityId={salesOrder.id} label="" />
         </div>
+        <div className="card p-5">
+          <h2 className="mb-3 text-sm font-semibold text-ink-800">Emails</h2>
+          <EmailsList entityType="sales-orders" entityId={salesOrder.id} refreshSignal={emailRefreshSignal} />
+        </div>
       </div>
+
+      <SendEmailModal
+        open={emailModalOpen}
+        onClose={() => setEmailModalOpen(false)}
+        entityType="sales-orders"
+        entityId={salesOrder.id}
+        docNumber={salesOrder.soNumber}
+        orgName={org.name}
+        partyName={billToName}
+        defaultToEmail={customer?.email ?? null}
+        printRef={printRef}
+        onSent={() => setEmailRefreshSignal((n) => n + 1)}
+      />
 
       <Modal open={vendorModalOpen} onClose={() => setVendorModalOpen(false)} title="Convert to Purchase Order">
         <div className="space-y-4">

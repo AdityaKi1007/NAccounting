@@ -1,6 +1,14 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadBucketCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { nanoid } from "nanoid";
+import { queryOne } from "@/lib/db";
+import { decryptSecret } from "@/lib/secrets-crypto";
 
 // Thin wrapper around the AWS S3 SDK for the attachments feature (see
 // src/lib/attachments.ts). Storage is organization-wise: every object key is namespaced
@@ -8,45 +16,106 @@ import { nanoid } from "nanoid";
 // route.ts a simple SUM(size_bytes) WHERE organization_id = $1 rather than needing S3 itself
 // to know about organizations.
 //
-// AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION / S3_BUCKET_NAME come from the
-// real AWS account this app's attachments should be stored in — see .env.example. Two more
-// are optional and exist for S3-compatible endpoints (MinIO, Cloudflare R2, or this
-// project's own local sandbox testing via s3rver — see the test scripts) rather than real
-// AWS: S3_ENDPOINT (a custom endpoint URL) and S3_FORCE_PATH_STYLE ("true" to address the
-// bucket as part of the URL path instead of a subdomain, which real AWS S3 doesn't need but
-// most S3-compatible servers require).
+// Two ways to configure it, checked in this order:
+//  1. Per-organization settings entered on Settings -> Integrations -> File Storage (S3) —
+//     see S3StorageSettingsForm.tsx and /api/settings/file-storage — stored on the
+//     organizations row, the secret key encrypted (see secrets-crypto.ts). This is the
+//     primary path for a real multi-tenant deployment: each organization's files live in its
+//     own bucket/account.
+//  2. The app-wide AWS_*/S3_* env vars (see .env.example) — kept as a fallback so a
+//     single-organization/self-hosted install can keep working via .env alone, exactly as
+//     before this settings page existed.
 
-let client: S3Client | null = null;
-
-function getBucket(): string {
-  const bucket = process.env.S3_BUCKET_NAME;
-  if (!bucket) throw new AttachmentsNotConfiguredError();
-  return bucket;
+export interface S3Config {
+  accessKeyId: string;
+  secretAccessKey: string;
+  region: string;
+  bucketName: string;
+  endpoint?: string | null;
+  forcePathStyle?: boolean;
 }
 
-function getClient(): S3Client {
-  if (client) return client;
-  const { AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, S3_ENDPOINT, S3_FORCE_PATH_STYLE } = process.env;
-  if (!AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY || !AWS_REGION || !process.env.S3_BUCKET_NAME) {
-    throw new AttachmentsNotConfiguredError();
-  }
-  client = new S3Client({
-    region: AWS_REGION,
-    credentials: { accessKeyId: AWS_ACCESS_KEY_ID, secretAccessKey: AWS_SECRET_ACCESS_KEY },
-    ...(S3_ENDPOINT ? { endpoint: S3_ENDPOINT, forcePathStyle: S3_FORCE_PATH_STYLE === "true" } : {}),
+function buildS3Client(cfg: S3Config): S3Client {
+  return new S3Client({
+    region: cfg.region,
+    credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
+    ...(cfg.endpoint ? { endpoint: cfg.endpoint, forcePathStyle: Boolean(cfg.forcePathStyle) } : {}),
   });
-  return client;
 }
 
-/** Thrown (and caught by the API routes) when AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/
- * AWS_REGION/S3_BUCKET_NAME haven't been set yet — e.g. a fresh install before the org's
- * real AWS credentials have been added. Every other feature in the app keeps working; only
- * attachment uploads/downloads fail, with this message instead of a raw AWS SDK error. */
+interface OrgS3Row {
+  s3_access_key_id: string | null;
+  s3_secret_access_key_encrypted: string | null;
+  s3_region: string | null;
+  s3_bucket_name: string | null;
+  s3_endpoint: string | null;
+  s3_force_path_style: boolean;
+}
+
+async function getOrgS3Config(orgId: string): Promise<S3Config | null> {
+  const row = await queryOne<OrgS3Row>(
+    `SELECT s3_access_key_id, s3_secret_access_key_encrypted, s3_region, s3_bucket_name, s3_endpoint, s3_force_path_style
+     FROM organizations WHERE id = $1`,
+    [orgId]
+  );
+  if (!row?.s3_access_key_id || !row.s3_secret_access_key_encrypted || !row.s3_region || !row.s3_bucket_name) {
+    return null;
+  }
+  return {
+    accessKeyId: row.s3_access_key_id,
+    secretAccessKey: decryptSecret(row.s3_secret_access_key_encrypted),
+    region: row.s3_region,
+    bucketName: row.s3_bucket_name,
+    endpoint: row.s3_endpoint,
+    forcePathStyle: row.s3_force_path_style,
+  };
+}
+
+function getEnvS3Config(): S3Config | null {
+  const { AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, S3_BUCKET_NAME } = process.env;
+  if (!AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY || !AWS_REGION || !S3_BUCKET_NAME) return null;
+  return {
+    accessKeyId: AWS_ACCESS_KEY_ID,
+    secretAccessKey: AWS_SECRET_ACCESS_KEY,
+    region: AWS_REGION,
+    bucketName: S3_BUCKET_NAME,
+    endpoint: process.env.S3_ENDPOINT || null,
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
+  };
+}
+
+// One cached {client, bucket} per organization. invalidateOrgS3Config() must be called any
+// time an org's settings are saved/cleared, so the next upload/download rebuilds the client
+// from the new credentials instead of reusing stale ones.
+const clientCache = new Map<string, { client: S3Client; bucket: string }>();
+
+async function getClientForOrg(orgId: string): Promise<{ client: S3Client; bucket: string }> {
+  const cached = clientCache.get(orgId);
+  if (cached) return cached;
+
+  const cfg = (await getOrgS3Config(orgId)) ?? getEnvS3Config();
+  if (!cfg) throw new AttachmentsNotConfiguredError();
+  const entry = { client: buildS3Client(cfg), bucket: cfg.bucketName };
+  clientCache.set(orgId, entry);
+  return entry;
+}
+
+/** Call after an org's S3 settings are saved or cleared, so the next attachment
+ * upload/download/delete rebuilds its client from the new credentials instead of an old
+ * cached one. */
+export function invalidateOrgS3Config(orgId: string): void {
+  clientCache.delete(orgId);
+}
+
+/** Thrown (and caught by the API routes) when neither this organization's own S3 settings
+ * nor the app-wide AWS_ / S3_ env vars are configured yet. Every other feature in the app
+ * keeps working; only attachment uploads/downloads fail, with this message instead of a raw
+ * AWS SDK error. */
 export class AttachmentsNotConfiguredError extends Error {
   constructor() {
     super(
-      "File attachments aren't configured yet — set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION and " +
-        "S3_BUCKET_NAME (see .env.example) to enable uploads."
+      "File attachments aren't configured yet — add your S3 bucket details under Settings -> " +
+        "Integrations -> File Storage (S3) to enable uploads."
     );
     this.name = "AttachmentsNotConfiguredError";
   }
@@ -60,31 +129,34 @@ export function buildAttachmentKey(orgId: string, entityType: string, entityId: 
   return `orgs/${orgId}/${entityType}/${entityId}/${nanoid(10)}-${safeName}`;
 }
 
-export async function putAttachmentObject(key: string, body: Buffer, contentType: string): Promise<void> {
-  const s3 = getClient();
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: getBucket(),
-      Key: key,
-      Body: body,
-      ContentType: contentType,
-    })
-  );
+export async function putAttachmentObject(orgId: string, key: string, body: Buffer, contentType: string): Promise<void> {
+  const { client, bucket } = await getClientForOrg(orgId);
+  await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType }));
 }
 
-export async function deleteAttachmentObject(key: string): Promise<void> {
-  const s3 = getClient();
-  await s3.send(new DeleteObjectCommand({ Bucket: getBucket(), Key: key }));
+export async function deleteAttachmentObject(orgId: string, key: string): Promise<void> {
+  const { client, bucket } = await getClientForOrg(orgId);
+  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 }
 
 /** A short-lived (5 minute) signed URL for downloading one attachment — the bucket itself
  * is assumed private, so this is the only way a browser ever reads an object back out. */
-export async function getAttachmentDownloadUrl(key: string, fileName: string): Promise<string> {
-  const s3 = getClient();
+export async function getAttachmentDownloadUrl(orgId: string, key: string, fileName: string): Promise<string> {
+  const { client, bucket } = await getClientForOrg(orgId);
   const command = new GetObjectCommand({
-    Bucket: getBucket(),
+    Bucket: bucket,
     Key: key,
     ResponseContentDisposition: `attachment; filename="${fileName.replace(/"/g, "")}"`,
   });
-  return getSignedUrl(s3, command, { expiresIn: 300 });
+  return getSignedUrl(client, command, { expiresIn: 300 });
+}
+
+/** Confirms the given (not-yet-necessarily-saved) S3 settings can actually reach the bucket
+ * — backs the "Test Connection" button on the settings page. HeadBucket only needs
+ * s3:ListBucket/HeadBucket permission, not write access, so this is a safe, side-effect-free
+ * check; it still fails clearly on bad credentials, wrong region, or a bucket that doesn't
+ * exist, which is exactly what a user needs to know before saving. */
+export async function testS3Connection(cfg: S3Config): Promise<void> {
+  const client = buildS3Client(cfg);
+  await client.send(new HeadBucketCommand({ Bucket: cfg.bucketName }));
 }

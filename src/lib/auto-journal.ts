@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { claimNextNumber } from "@/lib/number-series";
 
 // Keeps the double-entry journal for an invoice or a payment in sync with that document,
 // reusing manual_journals/journal_lines (see migrations/1758600000000_auto_journals.js for
@@ -539,15 +540,6 @@ export async function syncDebitNoteJournal(client: PoolClient, orgId: string, de
 // AR, expense accounts instead of income).
 // ---------------------------------------------------------------------------------------
 
-/** The account a Bill/Vendor Credit's non-VAT portion posts against. There's no per-line
- * expense-account selection on bill_items (same simplification invoices made for Income —
- * see the module comment on syncInvoiceJournal's sibling), so every bill posts to one default
- * account for its full subtotal, preferring "Cost of Goods Sold" by name (that's what
- * provisionOrganization seeds) and otherwise any cost_of_goods_sold/expense-type account. */
-async function findPurchaseExpenseAccountId(client: PoolClient, orgId: string): Promise<string | null> {
-  return findAccountId(client, orgId, { types: ["cost_of_goods_sold", "expense"], nameLike: "cost of goods" });
-}
-
 /** Syncs the auto-journal for one bill: Dr [purchase expense] + Dr [VAT Payable, if any] /
  * Cr Accounts Payable, for the bill's subtotal/tax/total — the exact mirror of
  * syncInvoiceJournal. Draft bills post nothing (nothing owed yet); Open/Overdue/Paid/
@@ -561,16 +553,17 @@ export async function syncBillJournal(client: PoolClient, orgId: string, billId:
     subtotal: string;
     tax_total: string;
     total: string;
+    accounts_payable_account_id: string | null;
   }>(
-    `SELECT bill_number, bill_date, status, subtotal, tax_total, total FROM bills
+    `SELECT bill_number, bill_date, status, subtotal, tax_total, total, accounts_payable_account_id FROM bills
      WHERE id = $1 AND organization_id = $2`,
     [billId, orgId]
   );
   if (!bill.rowCount) return;
   const b = bill.rows[0];
 
-  if (b.status === "draft") {
-    await replaceJournal(client, {
+  const bail = () =>
+    replaceJournal(client, {
       orgId,
       billId,
       journalNumber: b.bill_number,
@@ -579,52 +572,56 @@ export async function syncBillJournal(client: PoolClient, orgId: string, billId:
       notes: "",
       lines: [],
     });
-    return;
-  }
 
-  const subtotal = round2(Number(b.subtotal));
+  if (b.status === "draft") return bail();
+
   const taxTotal = round2(Number(b.tax_total));
   const total = round2(Number(b.total));
-  if (total <= 0) {
-    await replaceJournal(client, {
-      orgId,
-      billId,
-      journalNumber: b.bill_number,
-      journalDate: b.bill_date,
-      referenceNumber: b.bill_number,
-      notes: "",
-      lines: [],
-    });
-    return;
-  }
+  if (total <= 0) return bail();
 
-  const [apAccountId, expenseAccountId, taxAccountId] = await Promise.all([
-    findAccountId(client, orgId, { types: ["accounts_payable"] }),
-    findPurchaseExpenseAccountId(client, orgId),
+  // Per-line accounts (see migrations/1761000000000_bills_payments_vendor_credits_gl.js for
+  // why this bill posts one Dr per distinct account instead of the single fuzzy-matched
+  // purchase-expense account every other document type in this app still uses) — lines
+  // sharing the same account are merged into one journal line each, keyed by account so the
+  // journal stays as short as the bill's actual account spread, not one row per line item.
+  const items = await client.query<{ account_id: string | null; amount: string }>(
+    `SELECT account_id, amount FROM bill_items WHERE bill_id = $1`,
+    [billId]
+  );
+  const perAccount = new Map<string, number>();
+  let anyMissingAccount = false;
+  for (const item of items.rows) {
+    if (!item.account_id) {
+      anyMissingAccount = true;
+      continue;
+    }
+    perAccount.set(item.account_id, round2((perAccount.get(item.account_id) ?? 0) + Number(item.amount)));
+  }
+  // A bill line with no account selected can't post a confident debit for its share of the
+  // total — bail entirely (post nothing) rather than post a journal that quietly omits part
+  // of what the bill actually says it cost, same "configuration isn't finished yet" philosophy
+  // every other account-resolution failure in this file already follows.
+  if (anyMissingAccount || perAccount.size === 0) return bail();
+
+  const [apAccountId, taxAccountId] = await Promise.all([
+    b.accounts_payable_account_id
+      ? Promise.resolve(b.accounts_payable_account_id as string | null)
+      : findAccountId(client, orgId, { types: ["accounts_payable"] }),
     taxTotal > 0 ? findAccountId(client, orgId, { types: ["other_current_liability"], nameLike: "vat" }) : Promise.resolve(null),
   ]);
 
-  if (!apAccountId || !expenseAccountId || (taxTotal > 0 && !taxAccountId)) {
-    await replaceJournal(client, {
-      orgId,
-      billId,
-      journalNumber: b.bill_number,
-      journalDate: b.bill_date,
-      referenceNumber: b.bill_number,
-      notes: "",
-      lines: [],
-    });
-    return;
-  }
+  if (!apAccountId || (taxTotal > 0 && !taxAccountId)) return bail();
 
-  const lines: JournalLineInput[] = [
-    { accountId: expenseAccountId, description: `Bill ${b.bill_number}`, debit: subtotal, credit: 0 },
-  ];
+  const lines: JournalLineInput[] = [];
+  for (const [accountId, amount] of perAccount) {
+    if (amount <= 0) continue;
+    lines.push({ accountId, description: `Bill ${b.bill_number}`, debit: amount, credit: 0 });
+  }
   if (taxTotal > 0 && taxAccountId) {
     // Input VAT reduces the same VAT Payable liability output tax builds up — see the
     // matching note on syncExpenseJournal for why this app doesn't track a separate
     // recoverable-input-VAT account.
-    lines.push({ accountId: taxAccountId, description: `Bill ${b.bill_number}`, debit: taxTotal, credit: 0 });
+    lines.push({ accountId: taxAccountId, description: `Bill ${b.bill_number} — VAT`, debit: taxTotal, credit: 0 });
   }
   lines.push({ accountId: apAccountId, description: `Bill ${b.bill_number}`, debit: 0, credit: total });
 
@@ -639,13 +636,14 @@ export async function syncBillJournal(client: PoolClient, orgId: string, billId:
   });
 }
 
-/** Recomputes one bill's balance_due/status from every payments_made row currently pointing
- * at it (full recompute, not an incremental patch — Payments Made is a plain generic-CRUD
- * entity that can be edited or deleted directly, unlike Payments Received's dedicated
- * create-only allocation flow, so "sum what's actually there right now" is the only version
- * of this that can't drift). Only touches status when the paid/unpaid boundary actually
- * changes — an Overdue or Open bill that's still fully unpaid keeps whichever of those it was,
- * rather than this function silently deciding between them. */
+/** Recomputes one bill's balance_due/status from every bill_payment_allocations row currently
+ * pointing at it, counting only allocations whose payment is actually Paid (a Draft payment's
+ * allocations are recorded for reference but don't touch a bill's balance — see
+ * payments-made-api.ts's createPayment, the mirror of receipts-api.ts's createReceipt). Full
+ * recompute, not an incremental patch, so applying/unapplying/deleting a payment can never
+ * leave this drifted from what's actually allocated. Only touches status when the paid/unpaid
+ * boundary actually changes — an Overdue or Open bill that's still fully unpaid keeps whichever
+ * of those it was, rather than this function silently deciding between them. */
 export async function recomputeBillBalance(client: PoolClient, orgId: string, billId: string) {
   const bill = await client.query<{ total: string; status: string }>(
     `SELECT total, status FROM bills WHERE id = $1 AND organization_id = $2 FOR UPDATE`,
@@ -656,7 +654,9 @@ export async function recomputeBillBalance(client: PoolClient, orgId: string, bi
   const currentStatus = bill.rows[0].status;
 
   const paidResult = await client.query<{ paid: string | null }>(
-    `SELECT SUM(amount) AS paid FROM payments_made WHERE bill_id = $1 AND organization_id = $2`,
+    `SELECT SUM(bpa.amount) AS paid FROM bill_payment_allocations bpa
+     JOIN payments_made pm ON pm.id = bpa.payment_made_id
+     WHERE bpa.bill_id = $1 AND pm.organization_id = $2 AND pm.status = 'paid'`,
     [billId, orgId]
   );
   const paid = round2(Number(paidResult.rows[0]?.paid ?? 0));
@@ -676,12 +676,11 @@ export async function recomputeBillBalance(client: PoolClient, orgId: string, bi
 }
 
 /** Syncs the auto-journal for one payment made: Dr Accounts Payable / Cr Bank — the mirror of
- * syncPaymentJournal. Unlike Payments Received, this app doesn't give Payments Made a
- * multi-bill allocation picker (it's a plain "Against Bill" single-select — see entities.ts),
- * so there's no unapplied/bank-charges split to post here; a payment not linked to any
- * specific bill still posts (it's real cash leaving through a real reduction of what's owed),
- * it just doesn't reduce any one bill's balance_due (see recomputeBillBalance above, called
- * separately by the route handler for whichever bill(s) were actually affected). */
+ * syncPaymentJournal. Posts for the payment's full amount regardless of how much of it is
+ * actually allocated to a bill yet (mirrors Payments Received's "excess payment" case) — the
+ * cash really did leave through this bank account either way; which bill(s) that reduces is
+ * bill_payment_allocations' job, handled separately by recomputeBillBalance above (called by
+ * payments-made-api.ts for every bill an allocation touches). */
 export async function syncPaymentMadeJournal(client: PoolClient, orgId: string, paymentMadeId: string) {
   const payment = await client.query<{
     payment_number: string;
@@ -816,30 +815,36 @@ export async function syncExpenseJournal(client: PoolClient, orgId: string, expe
   });
 }
 
-/** Syncs the auto-journal for one vendor credit: Dr Accounts Payable / Cr [purchase expense],
- * for its `total` — the mirror of a credit note, reversed for the vendor side. Unlike Credit/
- * Debit Notes, Vendor Credits in this app are a plain flat record with no invoice-style
- * `subtotal`/`tax_total` split and no link to a specific bill (see entities.ts) — a real gap
- * (it can't auto-close a bill's balance_due the way a payment can), but out of scope for the
- * ledger fix this function exists for. Posts for both "open" and "closed" status (there's no
- * void/draft concept here, so a vendor credit only ever needs to be un-posted if it's deleted,
- * which ON DELETE CASCADE already handles). */
+/** Syncs the auto-journal for one vendor credit: Dr Accounts Payable [total] / Cr [each line's
+ * account, merged by account] + Cr [VAT Payable, if any] — the mirror of syncBillJournal,
+ * reversed for the vendor side (a vendor credit un-does part of what a bill posted: it reduces
+ * what's owed and reduces the expense/asset originally recognized against it). Posts for both
+ * "open" and "closed" status (there's no void/draft concept here, so a vendor credit only ever
+ * needs to be un-posted if it's deleted, which ON DELETE CASCADE already handles).
+ *
+ * Scope decision (see the "vendor credit with proper accounting" request this was built for):
+ * this posts a correct GL entry for the credit itself, but — like the pre-existing gap this
+ * function used to have disclosed in its own comment — a vendor credit still isn't linked to
+ * any specific bill and can't reduce one's balance_due the way a Payment Made can. Applying a
+ * vendor credit against an open bill (Zoho's separate "Apply Credits" action) is out of scope
+ * here; it reduces the org's AP balance in aggregate on the books, not any one bill's. */
 export async function syncVendorCreditJournal(client: PoolClient, orgId: string, vendorCreditId: string) {
   const credit = await client.query<{
     credit_note_number: string;
     credit_date: string;
+    tax_total: string;
     total: string;
+    accounts_payable_account_id: string | null;
   }>(
-    `SELECT credit_note_number, credit_date, total FROM vendor_credits
+    `SELECT credit_note_number, credit_date, tax_total, total, accounts_payable_account_id FROM vendor_credits
      WHERE id = $1 AND organization_id = $2`,
     [vendorCreditId, orgId]
   );
   if (!credit.rowCount) return;
   const vc = credit.rows[0];
 
-  const total = round2(Number(vc.total));
-  if (total <= 0) {
-    await replaceJournal(client, {
+  const bail = () =>
+    replaceJournal(client, {
       orgId,
       vendorCreditId,
       journalNumber: vc.credit_note_number,
@@ -848,25 +853,44 @@ export async function syncVendorCreditJournal(client: PoolClient, orgId: string,
       notes: "",
       lines: [],
     });
-    return;
-  }
 
-  const [apAccountId, expenseAccountId] = await Promise.all([
-    findAccountId(client, orgId, { types: ["accounts_payable"] }),
-    findPurchaseExpenseAccountId(client, orgId),
+  const taxTotal = round2(Number(vc.tax_total));
+  const total = round2(Number(vc.total));
+  if (total <= 0) return bail();
+
+  const items = await client.query<{ account_id: string | null; amount: string }>(
+    `SELECT account_id, amount FROM vendor_credit_items WHERE vendor_credit_id = $1`,
+    [vendorCreditId]
+  );
+  const perAccount = new Map<string, number>();
+  let anyMissingAccount = false;
+  for (const item of items.rows) {
+    if (!item.account_id) {
+      anyMissingAccount = true;
+      continue;
+    }
+    perAccount.set(item.account_id, round2((perAccount.get(item.account_id) ?? 0) + Number(item.amount)));
+  }
+  if (anyMissingAccount || perAccount.size === 0) return bail();
+
+  const [apAccountId, taxAccountId] = await Promise.all([
+    vc.accounts_payable_account_id
+      ? Promise.resolve(vc.accounts_payable_account_id as string | null)
+      : findAccountId(client, orgId, { types: ["accounts_payable"] }),
+    taxTotal > 0 ? findAccountId(client, orgId, { types: ["other_current_liability"], nameLike: "vat" }) : Promise.resolve(null),
   ]);
 
-  if (!apAccountId || !expenseAccountId) {
-    await replaceJournal(client, {
-      orgId,
-      vendorCreditId,
-      journalNumber: vc.credit_note_number,
-      journalDate: vc.credit_date,
-      referenceNumber: vc.credit_note_number,
-      notes: "",
-      lines: [],
-    });
-    return;
+  if (!apAccountId || (taxTotal > 0 && !taxAccountId)) return bail();
+
+  const lines: JournalLineInput[] = [
+    { accountId: apAccountId, description: `Vendor Credit ${vc.credit_note_number}`, debit: total, credit: 0 },
+  ];
+  for (const [accountId, amount] of perAccount) {
+    if (amount <= 0) continue;
+    lines.push({ accountId, description: `Vendor Credit ${vc.credit_note_number}`, debit: 0, credit: amount });
+  }
+  if (taxTotal > 0 && taxAccountId) {
+    lines.push({ accountId: taxAccountId, description: `Vendor Credit ${vc.credit_note_number} — VAT`, debit: 0, credit: taxTotal });
   }
 
   await replaceJournal(client, {
@@ -876,9 +900,145 @@ export async function syncVendorCreditJournal(client: PoolClient, orgId: string,
     journalDate: vc.credit_date,
     referenceNumber: vc.credit_note_number,
     notes: `Auto-generated from Vendor Credit ${vc.credit_note_number}`,
-    lines: [
-      { accountId: apAccountId, description: `Vendor Credit ${vc.credit_note_number}`, debit: total, credit: 0 },
-      { accountId: expenseAccountId, description: `Vendor Credit ${vc.credit_note_number}`, debit: 0, credit: total },
-    ],
+    lines,
   });
+}
+
+// ---------------------------------------------------------------------------------------
+// Opening Balances (Settings -> Setup & Configurations -> Opening Balances) — a single,
+// org-wide consolidated journal rather than one journal per document, so it doesn't fit
+// replaceJournal's per-document link-column shape above. manual_journals.is_opening_balance
+// (+ a partial unique index on organization_id) is this feature's equivalent of that link
+// column — there's no one row to point a FK at, since this journal represents the org's
+// entire opening trial balance, not a single document.
+// ---------------------------------------------------------------------------------------
+
+/** Finds the org's system "Opening Balance Adjustments" account by its exact seeded name
+ * (see org-provisioning.ts's DEFAULT_ACCOUNTS and the 2026-09-11 migration's backfill) —
+ * deliberately NOT using findAccountId's type-based fallback like every other lookup in this
+ * file, because falling back to "any other_current_liability/equity account" here could
+ * silently plug the opening-balance difference into an unrelated real account (e.g. VAT
+ * Payable, Owner's Equity) instead of just not posting. Renaming or deleting this account
+ * breaks auto-balancing the same way deleting any other fuzzy-matched default account in this
+ * app already does — a disclosed, not a new, risk. */
+async function findOpeningBalanceAdjustmentsAccountId(client: PoolClient, orgId: string): Promise<string | null> {
+  const res = await client.query<{ id: string }>(
+    `SELECT id FROM accounts WHERE organization_id = $1 AND is_active AND name = 'Opening Balance Adjustments' LIMIT 1`,
+    [orgId]
+  );
+  return res.rowCount ? res.rows[0].id : null;
+}
+
+/** Rebuilds the org's single consolidated Opening Balance journal from three sources:
+ *   1. Every account_opening_balances row (directly-entered Asset/Liability/Equity balances,
+ *      entered via the settings page itself — never Accounts Receivable/Accounts Payable,
+ *      which are derived below instead, matching Zoho's own behavior of tracking those
+ *      per-customer/per-vendor rather than as a single number).
+ *   2. SUM(customers.opening_balance) across the org, posted to the org's Accounts
+ *      Receivable account — the same opening_balance field CustomerForm.tsx has always
+ *      captured but that, until this feature, fed nothing downstream.
+ *   3. SUM(vendors.opening_balance) across the org, posted to Accounts Payable (a new column
+ *      this migration adds — vendors never had one before, unlike customers).
+ * Whatever doesn't already balance is posted to "Opening Balance Adjustments" so the entry
+ * always balances without the user hand-computing the difference themselves.
+ *
+ * Safe to call any time, on any number of saves, in any order — same "always call, let it
+ * figure out the current truth" contract as every other syncXJournal in this file. If the
+ * org has no Migration Date set (Opening Balances has never been configured, or was just
+ * cleared via Delete), this simply removes any existing opening-balance journal and returns.
+ * Called after the Opening Balances settings page itself saves/deletes, and after every
+ * Customer/Vendor create/update/delete (see those routes), so a customer's or vendor's
+ * opening_balance edit keeps the consolidated entry current from then on — but only once the
+ * org has actually turned this feature on by setting a Migration Date; before that, editing a
+ * customer's/vendor's opening_balance has zero GL effect, exactly as it always has. */
+export async function syncOpeningBalanceJournal(client: PoolClient, orgId: string) {
+  const org = await client.query<{ opening_balance_migration_date: string | null }>(
+    `SELECT opening_balance_migration_date FROM organizations WHERE id = $1`,
+    [orgId]
+  );
+  const migrationDate = org.rows[0]?.opening_balance_migration_date ?? null;
+
+  const existing = await client.query<{ journal_number: string }>(
+    `SELECT journal_number FROM manual_journals WHERE organization_id = $1 AND is_opening_balance = true`,
+    [orgId]
+  );
+  await client.query(`DELETE FROM manual_journals WHERE organization_id = $1 AND is_opening_balance = true`, [orgId]);
+
+  if (!migrationDate) return;
+
+  const lines: JournalLineInput[] = [];
+
+  const accountRows = await client.query<{ account_id: string; debit: string; credit: string }>(
+    `SELECT account_id, debit, credit FROM account_opening_balances
+     WHERE organization_id = $1 AND (debit <> 0 OR credit <> 0)`,
+    [orgId]
+  );
+  for (const row of accountRows.rows) {
+    lines.push({
+      accountId: row.account_id,
+      description: "Opening Balance",
+      debit: round2(Number(row.debit)),
+      credit: round2(Number(row.credit)),
+    });
+  }
+
+  const [customerSum, vendorSum, arAccountId, apAccountId] = await Promise.all([
+    client.query<{ sum: string | null }>(`SELECT SUM(opening_balance) AS sum FROM customers WHERE organization_id = $1`, [orgId]),
+    client.query<{ sum: string | null }>(`SELECT SUM(opening_balance) AS sum FROM vendors WHERE organization_id = $1`, [orgId]),
+    findAccountId(client, orgId, { types: ["accounts_receivable"] }),
+    findAccountId(client, orgId, { types: ["accounts_payable"] }),
+  ]);
+
+  const arTotal = round2(Number(customerSum.rows[0]?.sum ?? 0));
+  if (arTotal !== 0 && arAccountId) {
+    lines.push({
+      accountId: arAccountId,
+      description: "Opening Balance — Accounts Receivable",
+      debit: arTotal > 0 ? arTotal : 0,
+      credit: arTotal < 0 ? -arTotal : 0,
+    });
+  }
+
+  const apTotal = round2(Number(vendorSum.rows[0]?.sum ?? 0));
+  if (apTotal !== 0 && apAccountId) {
+    lines.push({
+      accountId: apAccountId,
+      description: "Opening Balance — Accounts Payable",
+      debit: apTotal < 0 ? -apTotal : 0,
+      credit: apTotal > 0 ? apTotal : 0,
+    });
+  }
+
+  if (lines.length === 0) return;
+
+  const totalDebit = round2(lines.reduce((s, l) => s + l.debit, 0));
+  const totalCredit = round2(lines.reduce((s, l) => s + l.credit, 0));
+  const diff = round2(totalDebit - totalCredit);
+  if (diff !== 0) {
+    const adjustmentsAccountId = await findOpeningBalanceAdjustmentsAccountId(client, orgId);
+    // Can't balance without the plug account — post nothing rather than an unbalanced entry,
+    // matching this file's standing "quietly post nothing on missing configuration" rule.
+    if (!adjustmentsAccountId) return;
+    lines.push({
+      accountId: adjustmentsAccountId,
+      description: "Opening Balance Adjustments",
+      debit: diff < 0 ? -diff : 0,
+      credit: diff > 0 ? diff : 0,
+    });
+  }
+
+  const journalNumber = existing.rows[0]?.journal_number ?? (await claimNextNumber(client, orgId, "manual-journals"));
+  const header = await client.query<{ id: string }>(
+    `INSERT INTO manual_journals
+       (organization_id, journal_number, journal_date, reference_number, status, notes, is_opening_balance)
+     VALUES ($1, $2, $3, $4, 'published', $5, true) RETURNING id`,
+    [orgId, journalNumber, migrationDate, "Opening Balance", "Auto-generated from the Opening Balances settings page"]
+  );
+  const journalId = header.rows[0].id;
+  for (const line of lines) {
+    await client.query(
+      `INSERT INTO journal_lines (journal_id, account_id, description, debit, credit) VALUES ($1, $2, $3, $4, $5)`,
+      [journalId, line.accountId, line.description, line.debit, line.credit]
+    );
+  }
 }

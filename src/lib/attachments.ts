@@ -15,6 +15,10 @@ export const ATTACHMENT_ENTITY_TABLES: Record<string, string> = {
   "payments-received": "payments_received",
   customers: "customers",
   vendors: "vendors",
+  expenses: "expenses",
+  bills: "bills",
+  "payments-made": "payments_made",
+  "vendor-credits": "vendor_credits",
 };
 
 export type AttachmentEntityType = keyof typeof ATTACHMENT_ENTITY_TABLES;

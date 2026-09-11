@@ -23,12 +23,20 @@ const ENDPOINTS: { method: string; path: string; note: string }[] = [
   { method: "GET", path: "/api/v1/receipts", note: "List payment receipts" },
   { method: "POST", path: "/api/v1/receipts", note: "Record a payment / receipt" },
   { method: "PATCH", path: "/api/v1/receipts/{id}", note: "Update a receipt" },
+  { method: "POST", path: "/api/v1/receipts/{id}/apply", note: "Apply more of a receipt to an invoice" },
+  { method: "POST", path: "/api/v1/receipts/{id}/unapply", note: "Unapply a receipt from one invoice" },
   { method: "GET", path: "/api/v1/customers", note: "List customers" },
   { method: "POST", path: "/api/v1/customers", note: "Create a customer" },
   { method: "PATCH", path: "/api/v1/customers/{id}", note: "Update a customer" },
+  { method: "GET", path: "/api/v1/vendors", note: "List vendors" },
+  { method: "POST", path: "/api/v1/vendors", note: "Create a vendor" },
+  { method: "PATCH", path: "/api/v1/vendors/{id}", note: "Update a vendor" },
   { method: "GET", path: "/api/v1/sales-orders", note: "List sales orders" },
   { method: "POST", path: "/api/v1/sales-orders", note: "Create a sales order" },
   { method: "PATCH", path: "/api/v1/sales-orders/{id}", note: "Update a sales order" },
+  { method: "GET", path: "/api/v1/credit-notes", note: "List credit memos" },
+  { method: "POST", path: "/api/v1/credit-notes", note: "Create a credit memo against an invoice" },
+  { method: "POST", path: "/api/v1/credit-notes/{id}/void", note: "Void a credit memo (unapply)" },
 ];
 
 const methodColor: Record<string, string> = {
@@ -112,7 +120,8 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
         <div>
           <h1 className="text-lg font-semibold text-ink-800">API Keys</h1>
           <p className="mt-0.5 text-sm text-gray-500">
-            Let external systems send invoices, receipts, customers and sales orders into NeoAccountingZ over REST.
+            Let external systems send invoices, receipts, customers, vendors, sales orders and credit memos into
+            NeoAccountingZ over REST.
           </p>
         </div>
         <button onClick={openNew} className="btn-primary">
@@ -127,8 +136,8 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
           </div>
           <h2 className="text-base font-semibold text-ink-800">Connect a Third-Party System</h2>
           <p className="max-w-md text-sm text-gray-500">
-            Generate a key and pass it as a bearer token to read and write invoices, receipts, customers and sales
-            orders from another application.
+            Generate a key and pass it as a bearer token to read and write invoices, receipts, customers, vendors,
+            sales orders and credit memos from another application.
           </p>
           <button onClick={openNew} className="btn-primary">
             Generate API Key
