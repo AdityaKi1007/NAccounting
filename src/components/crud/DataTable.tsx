@@ -29,6 +29,9 @@ interface Props {
    * bespoke, transactional endpoint (see EntityDef.restrictedCrud). The title still links to
    * the read-only detail view when hasDetailView is set. */
   restrictedCrud?: boolean;
+  /** When set, the title column renders as plain text — no link at all, not even to the edit
+   * page — even though a titleField is set. See EntityDef.disableTitleLink. */
+  disableTitleLink?: boolean;
 }
 
 function fieldFor(fields: FieldDef[], name: string): FieldDef | undefined {
@@ -102,6 +105,7 @@ export default function DataTable({
   titleField,
   hasDetailView = false,
   restrictedCrud = false,
+  disableTitleLink = false,
 }: Props) {
   const router = useRouter();
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -246,7 +250,14 @@ export default function DataTable({
               <tr key={id} className="hover:bg-gray-50">
                 {visibleColumns.map((col) => (
                   <td key={col} className={cellClass}>
-                    {col === titleField ? (
+                    {col === titleField && disableTitleLink ? (
+                      // Same title column, but this entity opted out of the usual
+                      // click-name-to-open behavior (see EntityDef.disableTitleLink) — render
+                      // as plain text; the row's pencil action is still the way to edit it.
+                      <span className="font-medium text-ink-800">
+                        {renderCell(fieldFor(fields, col), row[col], refOptions, col)}
+                      </span>
+                    ) : col === titleField ? (
                       // The row's own title is always a link to its own page — the read-only
                       // detail view when hasDetailView is set, otherwise the same edit page the
                       // row's pencil action already opens (which, for a plain flat entity like

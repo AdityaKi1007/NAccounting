@@ -139,6 +139,52 @@ export async function deleteAttachmentObject(orgId: string, key: string): Promis
   await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 }
 
+/** Fetches an object's raw bytes directly (as opposed to a presigned URL the *browser* uses
+ * to fetch it itself). Used by the Organization Logo feature (src/lib/org-logo.ts): a logo
+ * needs to be embedded as a `data:` URI in server-rendered pages (Settings preview, every
+ * PDF-header component) rather than linked to as a presigned URL, since a 5-minute presign
+ * (see getAttachmentDownloadUrl below) isn't workable for something rendered into an
+ * html2canvas-captured PDF or cached by a browser/email client well past that window — see
+ * the comment on getOrgLogoDataUri for the full reasoning. */
+export async function getObjectBytes(orgId: string, key: string): Promise<Buffer> {
+  const { client, bucket } = await getClientForOrg(orgId);
+  const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  const bytes = await res.Body?.transformToByteArray();
+  if (!bytes) throw new Error("Empty object body");
+  return Buffer.from(bytes);
+}
+
+/** Resolves an org's logo (see src/lib/org-logo.ts) as an inline `data:` URI, or null if it
+ * has none — or if the object can't be fetched, e.g. a since-changed/broken S3 config;
+ * a broken logo should never 500 a page that merely wants to show one, same "degrade
+ * quietly" philosophy this app already uses elsewhere (findAccountId returning null instead
+ * of throwing).
+ *
+ * Deliberately a `data:` URI, not a presigned URL like getAttachmentDownloadUrl above:
+ * every use of this (the Company Profile settings preview, and every invoice/sales-order/
+ * purchase-order/payment/statement PDF header) needs the image to still be loadable
+ * whenever a "Download PDF"/"Send Email" click fires — possibly well after the page first
+ * rendered — and getAttachmentDownloadUrl's 5-minute presign doesn't survive that. A
+ * `data:` URI has no expiry and, being same-origin as far as the DOM/canvas is concerned,
+ * also sidesteps html2canvas's CORS/tainted-canvas restrictions on cross-origin images — no
+ * S3 bucket CORS configuration is required for the logo to actually render inside a
+ * generated PDF. The tradeoff (a few KB of base64 inlined into every server-rendered page
+ * that shows a logo) is a good one at the 1MB cap this feature enforces on upload. */
+export async function getOrgLogoDataUri(orgId: string): Promise<string | null> {
+  const row = await queryOne<{ logo_key: string | null; logo_content_type: string | null }>(
+    `SELECT logo_key, logo_content_type FROM organizations WHERE id = $1`,
+    [orgId]
+  );
+  if (!row?.logo_key || !row.logo_content_type) return null;
+  try {
+    const bytes = await getObjectBytes(orgId, row.logo_key);
+    return `data:${row.logo_content_type};base64,${bytes.toString("base64")}`;
+  } catch (err) {
+    console.error("Could not fetch organization logo from S3", err);
+    return null;
+  }
+}
+
 /** A short-lived (5 minute) signed URL for downloading one attachment — the bucket itself
  * is assumed private, so this is the only way a browser ever reads an object back out. */
 export async function getAttachmentDownloadUrl(orgId: string, key: string, fileName: string): Promise<string> {

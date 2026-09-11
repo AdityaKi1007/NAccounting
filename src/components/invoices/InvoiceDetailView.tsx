@@ -82,10 +82,12 @@ export default function InvoiceDetailView({
   payments,
   journalLines,
   salesOrder,
+  project,
+  unit,
 }: {
   invoice: InvoiceData;
   customer: CustomerData | null;
-  org: { name: string; addressLines: string[] };
+  org: { name: string; addressLines: string[]; logoDataUri?: string | null };
   currency: string;
   lines: LineData[];
   payments: PaymentData[];
@@ -93,6 +95,9 @@ export default function InvoiceDetailView({
   /** Set when this invoice was created via a Sales Order's "Convert to Invoice" action —
    * see invoices.sales_order_id in entities.ts and convert-to-invoice/route.ts. */
   salesOrder?: { id: string; soNumber: string } | null;
+  /** Optional Property Master tags — see invoices.project_id/unit_id in entities.ts. */
+  project?: { id: string; name: string } | null;
+  unit?: { id: string; name: string } | null;
 }) {
   const router = useRouter();
   const printRef = useRef<HTMLDivElement>(null);
@@ -283,13 +288,19 @@ export default function InvoiceDetailView({
           )}
           <div ref={printRef} className="bg-white p-8">
             <div className="flex items-start justify-between">
-              <div>
-                <p className="text-base font-semibold text-ink-800">{org.name}</p>
-                {org.addressLines.map((line, i) => (
-                  <p key={i} className="text-sm text-gray-500">
-                    {line}
-                  </p>
-                ))}
+              <div className="flex items-start gap-3">
+                {org.logoDataUri && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={org.logoDataUri} alt="" className="h-12 w-12 shrink-0 rounded object-contain" />
+                )}
+                <div>
+                  <p className="text-base font-semibold text-ink-800">{org.name}</p>
+                  {org.addressLines.map((line, i) => (
+                    <p key={i} className="text-sm text-gray-500">
+                      {line}
+                    </p>
+                  ))}
+                </div>
               </div>
               <div className="text-right">
                 <h2 className="text-2xl font-bold tracking-wide text-ink-900">TAX INVOICE</h2>
@@ -338,6 +349,27 @@ export default function InvoiceDetailView({
                 </div>
               )}
             </div>
+
+            {(project || unit) && (
+              <div className="mt-4 flex flex-wrap gap-6 border-t border-gray-100 pt-4 text-sm">
+                {project && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Project</p>
+                    <Link href={`/projects/${project.id}`} className="text-brand-600 hover:underline">
+                      {project.name}
+                    </Link>
+                  </div>
+                )}
+                {unit && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Unit</p>
+                    <Link href={`/inventory/${unit.id}`} className="text-brand-600 hover:underline">
+                      {unit.name}
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
 
             <table className="mt-6 w-full text-left text-sm">
               <thead className="border-y border-gray-200 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">

@@ -80,6 +80,14 @@ export interface EntityDef {
    * first (see src/app/(app)/credit-notes/new/page.tsx) rather than create one out of thin
    * air, since a credit note only ever exists against a specific invoice. */
   customNewHref?: string;
+  /** Renders the title column as plain, unlinked text instead of the usual title-links-to-
+   * edit-or-detail-page behavior (see DataTable.tsx's title-column rendering) — for an
+   * entity where the row's own edit action (the pencil icon) is the intended way to open the
+   * record, and clicking the name itself should do nothing. First used for Units
+   * (`inventory`): its Building/Project refEntity columns are already clickable links to
+   * those parents' own detail pages, and the user found a plain click on the Unit Name
+   * itself opening the edit form to be unexpected/unwanted. */
+  disableTitleLink?: boolean;
 }
 
 // Zoho Books' full Account Type list, grouped exactly as its own dropdown groups them.
@@ -389,6 +397,13 @@ export const entities: Record<string, EntityDef> = {
       { name: "customer_id", label: "Customer", type: "select", refEntity: "customers", refLabelField: "display_name", required: true },
       { name: "invoice_date", label: "Invoice Date", type: "date" },
       { name: "due_date", label: "Due Date", type: "date" },
+      // Optional Property Master tags (see chart-of-accounts' own project_id for the same
+      // pattern) — surfaced by DocumentForm.tsx directly (gated on cfg.key === "invoices"),
+      // same as salesperson/sales_order_id above; these two entries exist mainly so the
+      // generic list/detail machinery can resolve+show them if ever added to listColumns.
+      // Deliberately NOT in listColumns for now — kept off the (already busy) Invoices list.
+      { name: "project_id", label: "Project", type: "select", refEntity: "projects", refLabelField: "name" },
+      { name: "unit_id", label: "Unit", type: "select", refEntity: "inventory", refLabelField: "name" },
       {
         name: "status",
         label: "Status",
@@ -553,6 +568,13 @@ export const entities: Record<string, EntityDef> = {
       },
       { name: "bank_account_id", label: "Deposit To", type: "select", refEntity: "bank-accounts", refLabelField: "account_name" },
       { name: "reference_number", label: "Reference #", type: "text" },
+      // Optional Property Master tags (same pattern/reasoning as invoices.project_id/unit_id
+      // above) — RecordPaymentForm.tsx renders these directly for create; this entry is what
+      // makes them show up and save correctly on the generic EntityForm used for editing an
+      // existing payment (see the "kind" comment at the top of this entity). Not in
+      // listColumns, same decision as Invoices.
+      { name: "project_id", label: "Project", type: "select", refEntity: "projects", refLabelField: "name" },
+      { name: "unit_id", label: "Unit", type: "select", refEntity: "inventory", refLabelField: "name" },
       {
         name: "status",
         label: "Status",
@@ -1095,7 +1117,7 @@ export const entities: Record<string, EntityDef> = {
     kind: "flat",
     titleField: "name",
     orderBy: "code asc nulls last, name asc",
-    listColumns: ["code", "name", "type", "is_active"],
+    listColumns: ["code", "name", "type", "project_id", "is_active"],
     hasDetailView: true,
     fields: [
       { name: "code", label: "Account Code", type: "text" },
@@ -1108,6 +1130,14 @@ export const entities: Record<string, EntityDef> = {
         required: true,
         options: ACCOUNT_TYPE_OPTIONS,
       },
+      // Optional — most accounts (Cash, VAT Payable, Accounts Receivable, ...) are org-wide,
+      // not tied to any one Property Master project. Lets the few that should be (a
+      // project-specific bank account, a project cost-center account) be tagged and then
+      // filtered/reported on by project. Not required, unlike Buildings/Units' project_id,
+      // since those are a true composition hierarchy under a project and this isn't.
+      { name: "project_id", label: "Project", type: "select", refEntity: "projects", refLabelField: "name" },
+      { name: "iban_number", label: "IBAN Number", type: "text" },
+      { name: "bank_name", label: "Bank Name", type: "text" },
       { name: "description", label: "Description", type: "textarea" },
       { name: "is_active", label: "Active", type: "boolean", default: true },
     ],
@@ -1404,6 +1434,7 @@ export const entities: Record<string, EntityDef> = {
     module: "Property Master",
     kind: "flat",
     titleField: "name",
+    disableTitleLink: true,
     orderBy: "created_at desc",
     listColumns: ["name", "building_id", "project_id", "unit_type", "status", "listed_price"],
     fields: [

@@ -46,16 +46,21 @@ export default function PaymentDetailView({
   allocations,
   journalLines,
   currency,
+  project,
+  unit,
 }: {
   payment: PaymentData;
   customerName: string;
   customerEmail: string | null;
   customerAddressLines: string[];
   bankAccountName: string;
-  org: { name: string; addressLines: string[] };
+  org: { name: string; addressLines: string[]; logoDataUri?: string | null };
   allocations: AllocationData[];
   journalLines: JournalLineData[];
   currency: string;
+  /** Optional Property Master tags — see payments_received.project_id/unit_id. */
+  project?: { id: string; name: string } | null;
+  unit?: { id: string; name: string } | null;
 }) {
   const printRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
@@ -116,13 +121,19 @@ export default function PaymentDetailView({
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
           <div ref={printRef} className="bg-white p-8">
             <div className="flex items-start justify-between">
-              <div>
-                <p className="text-base font-semibold text-ink-800">{org.name}</p>
-                {org.addressLines.map((line, i) => (
-                  <p key={i} className="text-sm text-gray-500">
-                    {line}
-                  </p>
-                ))}
+              <div className="flex items-start gap-3">
+                {org.logoDataUri && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={org.logoDataUri} alt="" className="h-12 w-12 shrink-0 rounded object-contain" />
+                )}
+                <div>
+                  <p className="text-base font-semibold text-ink-800">{org.name}</p>
+                  {org.addressLines.map((line, i) => (
+                    <p key={i} className="text-sm text-gray-500">
+                      {line}
+                    </p>
+                  ))}
+                </div>
               </div>
               <div className="text-right">
                 <h2 className="text-2xl font-bold tracking-wide text-ink-900">PAYMENT RECEIPT</h2>
@@ -170,6 +181,27 @@ export default function PaymentDetailView({
                 </p>
               ))}
             </div>
+
+            {(project || unit) && (
+              <div className="mt-6 flex flex-wrap gap-6 border-t border-gray-100 pt-4 text-sm">
+                {project && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Project</p>
+                    <Link href={`/projects/${project.id}`} className="text-brand-600 hover:underline">
+                      {project.name}
+                    </Link>
+                  </div>
+                )}
+                {unit && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Unit</p>
+                    <Link href={`/inventory/${unit.id}`} className="text-brand-600 hover:underline">
+                      {unit.name}
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
 
             {overpayment > 0.005 && (
               <div className="mt-6 flex items-center justify-between border-t border-gray-100 pt-4">

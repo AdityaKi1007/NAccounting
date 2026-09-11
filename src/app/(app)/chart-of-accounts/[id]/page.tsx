@@ -14,6 +14,9 @@ interface AccountRow {
   type: string;
   description: string | null;
   is_active: boolean;
+  project_id: string | null;
+  iban_number: string | null;
+  bank_name: string | null;
 }
 
 interface Txn {
@@ -30,7 +33,8 @@ export default async function AccountDetailPage({ params }: { params: { id: stri
   const ctx = await requireActiveContext();
 
   const account = await queryOne<AccountRow>(
-    `SELECT id, name, code, type, description, is_active FROM accounts WHERE id = $1 AND organization_id = $2`,
+    `SELECT id, name, code, type, description, is_active, project_id, iban_number, bank_name
+     FROM accounts WHERE id = $1 AND organization_id = $2`,
     [params.id, ctx.orgId]
   );
   if (!account) notFound();
@@ -39,7 +43,15 @@ export default async function AccountDetailPage({ params }: { params: { id: stri
   const typeLabel = entity?.fields.find((f) => f.name === "type")?.options?.find((o) => o.value === account.type)?.label
     ?? titleCase(account.type);
 
-  const org = await queryOne<{ currency: string }>(`SELECT currency FROM organizations WHERE id = $1`, [ctx.orgId]);
+  const [org, project] = await Promise.all([
+    queryOne<{ currency: string }>(`SELECT currency FROM organizations WHERE id = $1`, [ctx.orgId]),
+    account.project_id
+      ? queryOne<{ id: string; name: string }>(
+          `SELECT id, name FROM projects WHERE id = $1 AND organization_id = $2`,
+          [account.project_id, ctx.orgId]
+        )
+      : Promise.resolve(null),
+  ]);
   const currency = org?.currency ?? "AED";
 
   // Only manual journal lines and expenses reference accounts.id directly in this build —
@@ -126,6 +138,26 @@ export default async function AccountDetailPage({ params }: { params: { id: stri
             <p className="pt-2 text-sm text-gray-600">
               <span className="font-medium text-ink-700">Description: </span>
               {account.description}
+            </p>
+          )}
+          {project && (
+            <p className="pt-1 text-sm text-gray-600">
+              <span className="font-medium text-ink-700">Project: </span>
+              <Link href={`/projects/${project.id}`} className="text-brand-600 hover:underline">
+                {project.name}
+              </Link>
+            </p>
+          )}
+          {account.bank_name && (
+            <p className="pt-1 text-sm text-gray-600">
+              <span className="font-medium text-ink-700">Bank Name: </span>
+              {account.bank_name}
+            </p>
+          )}
+          {account.iban_number && (
+            <p className="pt-1 text-sm text-gray-600">
+              <span className="font-medium text-ink-700">IBAN Number: </span>
+              {account.iban_number}
             </p>
           )}
           <p className="pt-1 text-xs text-gray-400">

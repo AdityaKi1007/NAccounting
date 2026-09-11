@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireActiveContext } from "@/lib/session";
 import { query, queryOne } from "@/lib/db";
+import { getOrgLogoDataUri } from "@/lib/s3";
 import PaymentDetailView from "@/components/payments/PaymentDetailView";
 
 interface PaymentRow {
@@ -15,6 +16,18 @@ interface PaymentRow {
   reference_number: string | null;
   status: string;
   notes: string | null;
+  project_id: string | null;
+  unit_id: string | null;
+}
+
+interface ProjectRow {
+  id: string;
+  name: string;
+}
+
+interface UnitRow {
+  id: string;
+  name: string;
 }
 
 interface CustomerRow {
@@ -56,13 +69,13 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
 
   const payment = await queryOne<PaymentRow>(
     `SELECT id, payment_number, customer_id, payment_date, amount, bank_charges, payment_mode,
-            bank_account_id, reference_number, status, notes
+            bank_account_id, reference_number, status, notes, project_id, unit_id
      FROM payments_received WHERE id = $1 AND organization_id = $2`,
     [params.id, ctx.orgId]
   );
   if (!payment) notFound();
 
-  const [customer, bankAccount, allocations, journalLines, org] = await Promise.all([
+  const [customer, bankAccount, allocations, journalLines, org, project, unit, logoDataUri] = await Promise.all([
     payment.customer_id
       ? queryOne<CustomerRow>(
           `SELECT display_name, company_name, billing_address, email FROM customers WHERE id = $1 AND organization_id = $2`,
@@ -97,6 +110,13 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
        FROM organizations WHERE id = $1`,
       [ctx.orgId]
     ),
+    payment.project_id
+      ? queryOne<ProjectRow>(`SELECT id, name FROM projects WHERE id = $1 AND organization_id = $2`, [payment.project_id, ctx.orgId])
+      : Promise.resolve(null),
+    payment.unit_id
+      ? queryOne<UnitRow>(`SELECT id, name FROM inventory WHERE id = $1 AND organization_id = $2`, [payment.unit_id, ctx.orgId])
+      : Promise.resolve(null),
+    getOrgLogoDataUri(ctx.orgId),
   ]);
 
   return (
@@ -121,6 +141,7 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
         addressLines: [org?.address_street1, org?.address_street2, org?.address_city, org?.address_state, org?.location_country].filter(
           (v): v is string => Boolean(v && v.trim())
         ),
+        logoDataUri,
       }}
       allocations={allocations.map((a) => ({
         invoiceId: a.invoice_id,
@@ -134,6 +155,8 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
         credit: Number(j.credit),
       }))}
       currency={org?.currency ?? "AED"}
+      project={project ? { id: project.id, name: project.name } : null}
+      unit={unit ? { id: unit.id, name: unit.name } : null}
     />
   );
 }

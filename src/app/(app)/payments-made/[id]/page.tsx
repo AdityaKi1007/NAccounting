@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireActiveContext } from "@/lib/session";
 import { query, queryOne } from "@/lib/db";
+import { getOrgLogoDataUri } from "@/lib/s3";
 import PaymentMadeDetailView from "@/components/payments/PaymentMadeDetailView";
 
 interface PaymentRow {
@@ -60,7 +61,7 @@ export default async function PaymentMadeDetailPage({ params }: { params: { id: 
   );
   if (!payment) notFound();
 
-  const [vendor, bankAccount, allocations, journalLines, org] = await Promise.all([
+  const [vendor, bankAccount, allocations, journalLines, org, logoDataUri] = await Promise.all([
     payment.vendor_id
       ? queryOne<VendorRow>(`SELECT display_name, company_name, billing_address FROM vendors WHERE id = $1 AND organization_id = $2`, [
           payment.vendor_id,
@@ -95,6 +96,7 @@ export default async function PaymentMadeDetailPage({ params }: { params: { id: 
        FROM organizations WHERE id = $1`,
       [ctx.orgId]
     ),
+    getOrgLogoDataUri(ctx.orgId),
   ]);
 
   return (
@@ -117,6 +119,7 @@ export default async function PaymentMadeDetailPage({ params }: { params: { id: 
         addressLines: [org?.address_street1, org?.address_street2, org?.address_city, org?.address_state, org?.location_country].filter(
           (v): v is string => Boolean(v && v.trim())
         ),
+        logoDataUri,
       }}
       allocations={allocations.map((a) => ({
         billId: a.bill_id,

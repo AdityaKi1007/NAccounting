@@ -14,6 +14,13 @@ export const EMAIL_ENTITY_TABLES: Record<string, string> = {
   "sales-orders": "sales_orders",
   "purchase-orders": "purchase_orders",
   "payments-received": "payments_received",
+  // Customer Statement email (see CustomerStatementView.tsx) — the "document" being emailed
+  // IS the customer record itself, not a separate table, hence the self-referencing
+  // partyColumn below.
+  customers: "customers",
+  // Vendor Statement email (see VendorStatementView.tsx) — same self-referencing shape as
+  // customers above, mirrored for the purchases side.
+  vendors: "vendors",
 };
 
 export type EmailEntityType = keyof typeof EMAIL_ENTITY_TABLES;
@@ -31,6 +38,12 @@ export const EMAIL_ENTITY_PARTY: Record<EmailEntityType, { partyType: "customer"
   "sales-orders": { partyType: "customer", partyColumn: "customer_id" },
   "purchase-orders": { partyType: "vendor", partyColumn: "vendor_id" },
   "payments-received": { partyType: "customer", partyColumn: "customer_id" },
+  // Self-referencing: the entity being emailed (a customer row) and the party it gets filed
+  // under (the same customer) are one and the same — "id" resolves both sides of the route's
+  // ownership check to the customer we're actually sending the statement for.
+  customers: { partyType: "customer", partyColumn: "id" },
+  // Same self-referencing shape, vendor side.
+  vendors: { partyType: "vendor", partyColumn: "id" },
 };
 
 /** Where a party_type resolves to for the ownership check — mirrors ATTACHMENT_ENTITY_TABLES'
@@ -51,6 +64,8 @@ export const EMAIL_DOC_LABELS: Record<EmailEntityType, string> = {
   "sales-orders": "Sales Order",
   "purchase-orders": "Purchase Order",
   "payments-received": "Payment Receipt",
+  customers: "Statement",
+  vendors: "Statement",
 };
 
 export function defaultEmailSubject(entityType: EmailEntityType, docNumber: string, orgName: string): string {
@@ -73,6 +88,10 @@ export function defaultEmailBody(
       return `${greeting}\n\nPlease find attached purchase order ${docNumber}. Kindly proceed accordingly.\n\n${closing}`;
     case "payments-received":
       return `${greeting}\n\nPlease find attached the receipt for payment ${docNumber}. Thank you for your payment.\n\n${closing}`;
+    case "customers":
+      return `${greeting}\n\nPlease find attached your account statement.\n\nKindly let us know if you have any questions.\n\n${closing}`;
+    case "vendors":
+      return `${greeting}\n\nPlease find attached our account statement.\n\nKindly let us know if you have any questions.\n\n${closing}`;
     default:
       return `${greeting}\n\nPlease find attached ${docNumber}.\n\n${closing}`;
   }

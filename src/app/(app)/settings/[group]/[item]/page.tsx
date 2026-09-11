@@ -20,6 +20,7 @@ import EmailSmtpSettingsForm from "@/components/settings/EmailSmtpSettingsForm";
 import S3StorageSettingsForm from "@/components/settings/S3StorageSettingsForm";
 import { getOrCreateNumberSeries, NUMBER_SERIES_MODULES } from "@/lib/number-series";
 import { accountCategory } from "@/lib/accounts";
+import { getOrgLogoDataUri } from "@/lib/s3";
 
 export default async function SettingsItemPage({
   params,
@@ -37,6 +38,11 @@ export default async function SettingsItemPage({
       ? (await queryOne<{ org_seq: string }>(`SELECT org_seq FROM organizations WHERE id = $1`, [ctx.orgId]))
           ?.org_seq
       : null;
+
+  // Resolved server-side as an inline data: URI (never a presigned S3 URL) — see the comment
+  // on getOrgLogoDataUri in src/lib/s3.ts for why. Only fetched for the one settings view
+  // that actually shows it, same as orgSeq/smtpRow/s3Row above.
+  const logoDataUri = item.view === "company-profile" ? await getOrgLogoDataUri(ctx.orgId) : null;
 
   const smtpRow =
     item.view === "email-smtp"
@@ -135,6 +141,7 @@ export default async function SettingsItemPage({
                 report_basis: string;
               }
             }
+            initialLogoDataUri={logoDataUri}
           />
         )}
 

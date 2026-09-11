@@ -34,6 +34,10 @@ interface NumberSeries {
 interface Props {
   cfg: DocumentConfig;
   partyOptions: SelectOption[];
+  /** Property Master Project/Unit options — only rendered/used for Invoices (cfg.key ===
+   * "invoices"); empty arrays for every other document type sharing this form. */
+  projectOptions?: SelectOption[];
+  unitOptions?: SelectOption[];
   itemOptions: ItemOption[];
   statusOptions: SelectOption[];
   currency: string;
@@ -49,6 +53,26 @@ interface Props {
   docLabel: string;
 }
 
+// `pg` returns a `date`-typed column as a JS `Date` object, not a string, even though every
+// header value here is typed `Record<string, unknown>` (see DocumentFormPage.tsx's plain
+// `queryOne` fetch — no formatting applied). The old code did
+// `String(initial?.header?.[cfg.dateField] ?? "").slice(0, 10)`, and `String(dateObject)`
+// produces something like "Fri Sep 11 2026 00:00:00 GMT+0000 (UTC)" — slicing the first 10
+// characters of THAT silently drops the year, yielding "Fri Sep 11", which Postgres then
+// rejects on save ("invalid input syntax for type date") the moment this form resubmits the
+// same date field unchanged (which it always does — see onSubmit below). This is the exact
+// same root cause the AR Aging report hit (see the project doc's Reports section) — a `Date`
+// object being string-concatenated/truncated instead of routed through `new Date(...)` — just
+// never previously tripped over here because no earlier session had edited-then-saved an
+// existing Quote/Invoice/Bill/Purchase Order through this shared form. Handles a real `Date`,
+// an ISO string, or nothing, and always returns a clean `YYYY-MM-DD` (or "").
+function toDateInputValue(value: unknown): string {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
+}
+
 let seq = 0;
 function newRow(): LineRow {
   seq += 1;
@@ -58,6 +82,8 @@ function newRow(): LineRow {
 export default function DocumentForm({
   cfg,
   partyOptions,
+  projectOptions = [],
+  unitOptions = [],
   itemOptions,
   statusOptions,
   currency,
@@ -71,9 +97,9 @@ export default function DocumentForm({
   const [number, setNumber] = useState<string>(String(initial?.header?.[cfg.numberField] ?? ""));
   const [series, setSeries] = useState<NumberSeries | null | undefined>(numberSeries);
   const [showNumberModal, setShowNumberModal] = useState(false);
-  const [date, setDate] = useState<string>(String(initial?.header?.[cfg.dateField] ?? "").slice(0, 10));
+  const [date, setDate] = useState<string>(toDateInputValue(initial?.header?.[cfg.dateField]));
   const [secondDate, setSecondDate] = useState<string>(
-    cfg.secondDateField ? String(initial?.header?.[cfg.secondDateField] ?? "").slice(0, 10) : ""
+    cfg.secondDateField ? toDateInputValue(initial?.header?.[cfg.secondDateField]) : ""
   );
   const [status, setStatus] = useState<string>(String(initial?.header?.status ?? statusOptions[0]?.value ?? "draft"));
   const [notes, setNotes] = useState<string>(String(initial?.header?.notes ?? ""));
@@ -82,6 +108,9 @@ export default function DocumentForm({
   // (SalesOrderForm.tsx), just surfaced generically here since Invoices use this shared form
   // rather than a bespoke one.
   const [salesperson, setSalesperson] = useState<string>(String(initial?.header?.salesperson ?? ""));
+  // Invoices-only, same gating as salesperson above — optional Property Master tags.
+  const [projectId, setProjectId] = useState<string>(String(initial?.header?.project_id ?? ""));
+  const [unitId, setUnitId] = useState<string>(String(initial?.header?.unit_id ?? ""));
   const [taxPercent, setTaxPercent] = useState<number>(initial?.taxPercent ?? 5);
   const [rows, setRows] = useState<LineRow[]>(() => {
     if (initial?.lines?.length) {
@@ -155,7 +184,9 @@ export default function DocumentForm({
           ...(cfg.secondDateField ? { [cfg.secondDateField]: secondDate || null } : {}),
           status,
           notes,
-          ...(cfg.key === "invoices" ? { salesperson: salesperson || null } : {}),
+          ...(cfg.key === "invoices"
+            ? { salesperson: salesperson || null, project_id: projectId || null, unit_id: unitId || null }
+            : {}),
         },
         lines: validLines.map((r) => ({
           item_id: r.item_id || null,
@@ -370,16 +401,40 @@ export default function DocumentForm({
       </div>
 
       {cfg.key === "invoices" && (
-        <div>
-          <label className="label">Salesperson</label>
-          <input
-            className="input"
-            list="invoice-salespersons"
-            value={salesperson}
-            onChange={(e) => setSalesperson(e.target.value)}
-            placeholder="Select or add salesperson"
-          />
-          <datalist id="invoice-salespersons" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div>
+            <label className="label">Salesperson</label>
+            <input
+              className="input"
+              list="invoice-salespersons"
+              value={salesperson}
+              onChange={(e) => setSalesperson(e.target.value)}
+              placeholder="Select or add salesperson"
+            />
+            <datalist id="invoice-salespersons" />
+          </div>
+          <div>
+            <label className="label">Project</label>
+            <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <option value="">Select Project</option>
+              {projectOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Unit</label>
+            <select className="input" value={unitId} onChange={(e) => setUnitId(e.target.value)}>
+              <option value="">Select Unit</option>
+              {unitOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       )}
 

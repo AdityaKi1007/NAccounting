@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireActiveContext } from "@/lib/session";
 import { query, queryOne } from "@/lib/db";
+import { getOrgLogoDataUri } from "@/lib/s3";
 import SalesOrderDetailView from "@/components/sales-orders/SalesOrderDetailView";
 
 interface SalesOrderRow {
@@ -63,7 +64,7 @@ export default async function SalesOrderDetailPage({ params }: { params: { id: s
   );
   if (!so) notFound();
 
-  const [customer, org, lines, vendors] = await Promise.all([
+  const [customer, org, lines, vendors, logoDataUri] = await Promise.all([
     so.customer_id
       ? queryOne<CustomerRow>(
           `SELECT display_name, company_name, billing_address, shipping_address, email FROM customers WHERE id = $1 AND organization_id = $2`,
@@ -87,6 +88,7 @@ export default async function SalesOrderDetailPage({ params }: { params: { id: s
       `SELECT id, display_name FROM vendors WHERE organization_id = $1 AND is_active = true ORDER BY display_name ASC`,
       [ctx.orgId]
     ),
+    getOrgLogoDataUri(ctx.orgId),
   ]);
 
   return (
@@ -122,6 +124,7 @@ export default async function SalesOrderDetailPage({ params }: { params: { id: s
         addressLines: [org?.address_street1, org?.address_street2, org?.address_city, org?.address_state, org?.location_country].filter(
           (v): v is string => Boolean(v && v.trim())
         ),
+        logoDataUri,
       }}
       currency={org?.currency ?? "AED"}
       lines={lines.map((l) => ({

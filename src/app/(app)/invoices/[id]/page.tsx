@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireActiveContext } from "@/lib/session";
 import { query, queryOne } from "@/lib/db";
+import { getOrgLogoDataUri } from "@/lib/s3";
 import InvoiceDetailView from "@/components/invoices/InvoiceDetailView";
 
 interface InvoiceRow {
@@ -16,11 +17,23 @@ interface InvoiceRow {
   balance_due: string;
   notes: string | null;
   sales_order_id: string | null;
+  project_id: string | null;
+  unit_id: string | null;
 }
 
 interface SalesOrderRow {
   id: string;
   so_number: string;
+}
+
+interface ProjectRow {
+  id: string;
+  name: string;
+}
+
+interface UnitRow {
+  id: string;
+  name: string;
 }
 
 interface CustomerRow {
@@ -64,13 +77,14 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
   const ctx = await requireActiveContext();
 
   const invoice = await queryOne<InvoiceRow>(
-    `SELECT id, invoice_number, customer_id, invoice_date, due_date, status, subtotal, tax_total, total, balance_due, notes, sales_order_id
+    `SELECT id, invoice_number, customer_id, invoice_date, due_date, status, subtotal, tax_total, total, balance_due, notes,
+            sales_order_id, project_id, unit_id
      FROM invoices WHERE id = $1 AND organization_id = $2`,
     [params.id, ctx.orgId]
   );
   if (!invoice) notFound();
 
-  const [customer, org, lines, payments, journalLines, salesOrder] = await Promise.all([
+  const [customer, org, lines, payments, journalLines, salesOrder, project, unit, logoDataUri] = await Promise.all([
     queryOne<CustomerRow>(
       `SELECT display_name, company_name, billing_address, email FROM customers WHERE id = $1 AND organization_id = $2`,
       [invoice.customer_id, ctx.orgId]
@@ -111,6 +125,13 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
           [invoice.sales_order_id, ctx.orgId]
         )
       : Promise.resolve(null),
+    invoice.project_id
+      ? queryOne<ProjectRow>(`SELECT id, name FROM projects WHERE id = $1 AND organization_id = $2`, [invoice.project_id, ctx.orgId])
+      : Promise.resolve(null),
+    invoice.unit_id
+      ? queryOne<UnitRow>(`SELECT id, name FROM inventory WHERE id = $1 AND organization_id = $2`, [invoice.unit_id, ctx.orgId])
+      : Promise.resolve(null),
+    getOrgLogoDataUri(ctx.orgId),
   ]);
 
   return (
@@ -142,6 +163,7 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
         addressLines: [org?.address_street1, org?.address_street2, org?.address_city, org?.address_state, org?.location_country].filter(
           (v): v is string => Boolean(v && v.trim())
         ),
+        logoDataUri,
       }}
       currency={org?.currency ?? "AED"}
       lines={lines.map((l) => ({
@@ -161,6 +183,8 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
         credit: Number(j.credit),
       }))}
       salesOrder={salesOrder ? { id: salesOrder.id, soNumber: salesOrder.so_number } : null}
+      project={project ? { id: project.id, name: project.name } : null}
+      unit={unit ? { id: unit.id, name: unit.name } : null}
     />
   );
 }

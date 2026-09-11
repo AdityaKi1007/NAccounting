@@ -23,6 +23,9 @@ export interface ReceiptBody {
   notes?: string;
   status?: string;
   allocations?: { invoice_id: string; amount: number }[];
+  /** Optional Property Master tags — see payments_received.project_id/unit_id. */
+  project_id?: string | null;
+  unit_id?: string | null;
 }
 
 export interface ReceiptActionResult {
@@ -74,8 +77,8 @@ export async function createReceipt(orgId: string, body: ReceiptBody): Promise<R
 
     const paymentResult = await client.query(
       `INSERT INTO payments_received
-         (organization_id, payment_number, customer_id, payment_date, amount, bank_charges, payment_mode, bank_account_id, reference_number, notes, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         (organization_id, payment_number, customer_id, payment_date, amount, bank_charges, payment_mode, bank_account_id, reference_number, notes, status, project_id, unit_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING id`,
       [
         orgId,
@@ -89,6 +92,8 @@ export async function createReceipt(orgId: string, body: ReceiptBody): Promise<R
         body.reference_number || null,
         body.notes || null,
         status,
+        body.project_id || null,
+        body.unit_id || null,
       ]
     );
     const paymentId = paymentResult.rows[0].id as string;

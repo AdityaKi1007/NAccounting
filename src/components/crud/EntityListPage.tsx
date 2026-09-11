@@ -43,6 +43,7 @@ export default async function EntityListPage({ entityKey }: { entityKey: string 
           titleField={entity.titleField}
           hasDetailView={entity.hasDetailView}
           restrictedCrud={entity.restrictedCrud}
+          disableTitleLink={entity.disableTitleLink}
         />
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireActiveContext } from "@/lib/session";
 import { query, queryOne } from "@/lib/db";
+import { getOrgLogoDataUri } from "@/lib/s3";
 import PurchaseOrderDetailView from "@/components/purchase-orders/PurchaseOrderDetailView";
 
 interface PurchaseOrderRow {
@@ -55,7 +56,7 @@ export default async function PurchaseOrderDetailPage({ params }: { params: { id
   );
   if (!po) notFound();
 
-  const [vendor, org, lines] = await Promise.all([
+  const [vendor, org, lines, logoDataUri] = await Promise.all([
     po.vendor_id
       ? queryOne<VendorRow>(
           `SELECT display_name, company_name, billing_address, email FROM vendors WHERE id = $1 AND organization_id = $2`,
@@ -75,6 +76,7 @@ export default async function PurchaseOrderDetailPage({ params }: { params: { id
        ORDER BY poi.id ASC`,
       [po.id]
     ),
+    getOrgLogoDataUri(ctx.orgId),
   ]);
 
   return (
@@ -107,6 +109,7 @@ export default async function PurchaseOrderDetailPage({ params }: { params: { id
         addressLines: [org?.address_street1, org?.address_street2, org?.address_city, org?.address_state, org?.location_country].filter(
           (v): v is string => Boolean(v && v.trim())
         ),
+        logoDataUri,
       }}
       currency={org?.currency ?? "AED"}
       lines={lines.map((l) => ({

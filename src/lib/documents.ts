@@ -75,8 +75,10 @@ export const documentConfigs: Record<string, DocumentConfig> = {
     // DocumentForm.tsx at all (no input for it) — it's set exactly once, by
     // convert-to-invoice/route.ts passing it in createDocument()'s header, and left alone by
     // every later edit (updateDocument only touches an extraHeaderField when it's actually
-    // present in the PATCH body — see documents-api.ts).
-    extraHeaderFields: ["salesperson", "sales_order_id"],
+    // present in the PATCH body — see documents-api.ts). "project_id"/"unit_id" are the new
+    // optional Property Master tags — DocumentForm.tsx renders real selects for these two
+    // (unlike sales_order_id) and submits them like salesperson.
+    extraHeaderFields: ["salesperson", "sales_order_id", "project_id", "unit_id"],
   },
   bills: {
     key: "bills",

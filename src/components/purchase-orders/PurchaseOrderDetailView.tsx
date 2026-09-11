@@ -55,7 +55,7 @@ export default function PurchaseOrderDetailView({
 }: {
   purchaseOrder: PurchaseOrderData;
   vendor: VendorData | null;
-  org: { name: string; addressLines: string[] };
+  org: { name: string; addressLines: string[]; logoDataUri?: string | null };
   currency: string;
   lines: LineData[];
 }) {
@@ -229,13 +229,19 @@ export default function PurchaseOrderDetailView({
           )}
           <div ref={printRef} className="bg-white p-8">
             <div className="flex items-start justify-between">
-              <div>
-                <p className="text-base font-semibold text-ink-800">{org.name}</p>
-                {org.addressLines.map((line, i) => (
-                  <p key={i} className="text-sm text-gray-500">
-                    {line}
-                  </p>
-                ))}
+              <div className="flex items-start gap-3">
+                {org.logoDataUri && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={org.logoDataUri} alt="" className="h-12 w-12 shrink-0 rounded object-contain" />
+                )}
+                <div>
+                  <p className="text-base font-semibold text-ink-800">{org.name}</p>
+                  {org.addressLines.map((line, i) => (
+                    <p key={i} className="text-sm text-gray-500">
+                      {line}
+                    </p>
+                  ))}
+                </div>
               </div>
               <div className="text-right">
                 <h2 className="text-2xl font-bold tracking-wide text-ink-900">PURCHASE ORDER</h2>

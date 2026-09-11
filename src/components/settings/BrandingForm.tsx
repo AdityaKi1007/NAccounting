@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Moon, Sun, Upload } from "lucide-react";
+import Link from "next/link";
+import { Check, Moon, Sun } from "lucide-react";
 import { ACCENT_PRESETS, isValidHex } from "@/lib/theme";
 
 interface Org {
@@ -56,20 +57,14 @@ export default function BrandingForm({ organization }: { organization: Org }) {
 
       <div className="card space-y-4 p-6">
         <h2 className="text-sm font-semibold text-ink-800">Organization Logo</h2>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-          <button
-            type="button"
-            disabled
-            className="flex h-24 w-24 shrink-0 cursor-not-allowed flex-col items-center justify-center gap-1 rounded-md border border-dashed border-gray-300 text-center text-xs text-gray-400"
-          >
-            <Upload size={16} />
-            Upload Logo
-          </button>
-          <div className="text-xs text-gray-500">
-            <p>This logo will be displayed in transaction PDFs and email notifications.</p>
-            <p className="mt-1 text-gray-400">Logo uploads aren&apos;t supported in this build yet.</p>
-          </div>
-        </div>
+        <p className="text-xs text-gray-500">
+          Manage your organization&apos;s logo from{" "}
+          <Link href="/settings/company/profile" className="text-brand-600 hover:underline">
+            Company Profile
+          </Link>{" "}
+          — it&apos;s shown there alongside your other company details, and appears in transaction PDFs and email
+          notifications.
+        </p>
       </div>
 
       <div className="card space-y-4 p-6">

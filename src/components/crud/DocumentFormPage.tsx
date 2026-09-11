@@ -14,7 +14,12 @@ export default async function DocumentFormPage({ entityKey, id }: { entityKey: s
 
   const ctx = await requireActiveContext();
 
-  const [partyRows, itemRows] = await Promise.all([
+  // Property Master Project/Unit options — only Invoices' bespoke block in DocumentForm.tsx
+  // renders these (see cfg.key === "invoices" there), so skip the two extra queries for
+  // every other document type that shares this same page.
+  const isInvoices = cfg.key === "invoices";
+
+  const [partyRows, itemRows, projectRows, unitRows] = await Promise.all([
     query<{ id: string; label: string }>(
       `SELECT id, ${cfg.partyRefEntity === "customers" ? "display_name" : "display_name"} AS label
        FROM ${cfg.partyRefEntity} WHERE organization_id = $1 ORDER BY display_name ASC`,
@@ -24,6 +29,12 @@ export default async function DocumentFormPage({ entityKey, id }: { entityKey: s
       `SELECT id, name, sales_price, purchase_price FROM items WHERE organization_id = $1 ORDER BY name ASC`,
       [ctx.orgId]
     ),
+    isInvoices
+      ? query<{ id: string; name: string }>(`SELECT id, name FROM projects WHERE organization_id = $1 ORDER BY name ASC`, [ctx.orgId])
+      : Promise.resolve([]),
+    isInvoices
+      ? query<{ id: string; name: string }>(`SELECT id, name FROM inventory WHERE organization_id = $1 ORDER BY name ASC`, [ctx.orgId])
+      : Promise.resolve([]),
   ]);
 
   let initial = null;
@@ -59,6 +70,8 @@ export default async function DocumentFormPage({ entityKey, id }: { entityKey: s
         <DocumentForm
           cfg={cfg}
           partyOptions={partyRows.map((r) => ({ value: r.id, label: r.label }))}
+          projectOptions={projectRows.map((r) => ({ value: r.id, label: r.name }))}
+          unitOptions={unitRows.map((r) => ({ value: r.id, label: r.name }))}
           itemOptions={itemRows.map((r) => ({
             value: r.id,
             label: r.name,

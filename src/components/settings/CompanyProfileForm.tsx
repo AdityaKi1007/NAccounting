@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Upload } from "lucide-react";
 import { COUNTRIES } from "@/lib/countries";
+import OrgLogoUploader from "@/components/settings/OrgLogoUploader";
 
 const CURRENCIES = ["AED", "USD", "EUR", "GBP", "INR"];
 
@@ -76,7 +76,13 @@ interface Org {
   report_basis: string;
 }
 
-export default function CompanyProfileForm({ organization }: { organization: Org }) {
+export default function CompanyProfileForm({
+  organization,
+  initialLogoDataUri,
+}: {
+  organization: Org;
+  initialLogoDataUri: string | null;
+}) {
   const router = useRouter();
   const o = organization;
 
@@ -152,22 +158,7 @@ export default function CompanyProfileForm({ organization }: { organization: Org
 
       <div className="card space-y-4 p-6">
         <h2 className="text-sm font-semibold text-ink-800">Organization Logo</h2>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-          <button
-            type="button"
-            disabled
-            className="flex h-24 w-24 shrink-0 cursor-not-allowed flex-col items-center justify-center gap-1 rounded-md border border-dashed border-gray-300 text-center text-xs text-gray-400"
-          >
-            <Upload size={16} />
-            Upload Logo
-          </button>
-          <div className="text-xs text-gray-500">
-            <p>This logo will be displayed in transaction PDFs and email notifications.</p>
-            <p className="mt-1">Preferred Image Dimensions: 240 x 240 pixels @ 72 DPI</p>
-            <p>Supported Files: jpg, jpeg, png, gif, bmp &middot; Max 1MB</p>
-            <p className="mt-1 text-gray-400">Logo uploads aren&apos;t supported in this build yet.</p>
-          </div>
-        </div>
+        <OrgLogoUploader initialLogoDataUri={initialLogoDataUri} />
       </div>
 
       <div className="card space-y-4 p-6">

@@ -46,11 +46,16 @@ function autoApply(amountReceived: number, invoices: UnpaidInvoice[]): Record<st
 export default function RecordPaymentForm({
   customerOptions,
   bankAccountOptions,
+  projectOptions = [],
+  unitOptions = [],
   currency,
   numberPreview,
 }: {
   customerOptions: ComboboxOption[];
   bankAccountOptions: ComboboxOption[];
+  /** Optional Property Master Project/Unit tags — see payments_received.project_id/unit_id. */
+  projectOptions?: ComboboxOption[];
+  unitOptions?: ComboboxOption[];
   currency: string;
   /** Next auto-number from the org's Payments Received number series, shown only as the
    * Payment # input's placeholder — never pre-filled as its value (see RecordPaymentFormPage). */
@@ -67,6 +72,8 @@ export default function RecordPaymentForm({
   const [bankAccountId, setBankAccountId] = useState(bankAccountOptions[0]?.value ?? "");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [notes, setNotes] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [unitId, setUnitId] = useState("");
 
   const [invoices, setInvoices] = useState<UnpaidInvoice[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
@@ -169,6 +176,8 @@ export default function RecordPaymentForm({
         bank_account_id: bankAccountId,
         reference_number: referenceNumber || null,
         notes: notes || null,
+        project_id: projectId || null,
+        unit_id: unitId || null,
         status,
         allocations: invoices
           .filter((inv) => (allocations[inv.id] ?? 0) > 0)
@@ -286,6 +295,26 @@ export default function RecordPaymentForm({
             value={referenceNumber}
             onChange={(e) => setReferenceNumber(e.target.value)}
           />
+
+          <label className="label pt-2">Project</label>
+          <select className="input max-w-sm" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            <option value="">Select Project</option>
+            {projectOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
+          <label className="label pt-2">Unit</label>
+          <select className="input max-w-sm" value={unitId} onChange={(e) => setUnitId(e.target.value)}>
+            <option value="">Select Unit</option>
+            {unitOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="border-t border-gray-100 pt-5">
