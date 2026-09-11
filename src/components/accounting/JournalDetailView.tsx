@@ -303,7 +303,7 @@ export default function JournalDetailView({
               )}
             </ul>
             <p className="mt-6 text-xs text-gray-400">
-              This app doesn't keep a full edit-history audit log — the entries above are derived from the journal's own record, not a
+              This app doesn&apos;t keep a full edit-history audit log — the entries above are derived from the journal&apos;s own record, not a
               separate activity table.
             </p>
           </div>
