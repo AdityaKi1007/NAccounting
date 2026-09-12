@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, query, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { documentConfigs } from "@/lib/documents";
 import { createDocument } from "@/lib/documents-api";
 
@@ -30,6 +31,12 @@ interface LineRow {
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  // Converting a sales order into an invoice needs write access to both — creating the
+  // invoice is the whole point, so both modules must be enabled/permitted for this member.
+  const soAccessError = await moduleAccessErrorResponse(ctx, "sales-orders", "write");
+  if (soAccessError) return soAccessError;
+  const invoiceAccessError = await moduleAccessErrorResponse(ctx, "invoices", "write");
+  if (invoiceAccessError) return invoiceAccessError;
 
   const so = await queryOne<SalesOrderRow>(
     `SELECT id, customer_id, status, notes, converted_invoice_id FROM sales_orders WHERE id = $1 AND organization_id = $2`,

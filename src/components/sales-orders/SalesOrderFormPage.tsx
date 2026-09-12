@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { documentConfigs } from "@/lib/documents";
 import { getOrCreateNumberSeries, formatSeriesNumber } from "@/lib/number-series";
 import PageHeader from "@/components/crud/PageHeader";
@@ -10,8 +11,9 @@ const cfg = documentConfigs["sales-orders"];
 
 export default async function SalesOrderFormPage({ id }: { id?: string }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "sales-orders", "write");
 
-  const [customerRows, itemRows, paymentTermRows, org, series] = await Promise.all([
+  const [customerRows, itemRows, paymentTermRows, org, series, projectRows, unitRows] = await Promise.all([
     query<{ id: string; display_name: string; company_name: string | null }>(
       `SELECT id, display_name, company_name FROM customers WHERE organization_id = $1 AND is_active = true ORDER BY display_name ASC`,
       [ctx.orgId]
@@ -26,6 +28,11 @@ export default async function SalesOrderFormPage({ id }: { id?: string }) {
     ),
     queryOne<{ currency: string }>(`SELECT currency FROM organizations WHERE id = $1`, [ctx.orgId]),
     getOrCreateNumberSeries(ctx.orgId, "sales-orders"),
+    // Property Master Project/Unit options — same tags Invoices already offer (see
+    // DocumentFormPage.tsx's own isInvoices-gated queries); Sales Orders always fetches them
+    // since it's the one entity, unlike the generic DocumentForm, with its own bespoke page.
+    query<{ id: string; name: string }>(`SELECT id, name FROM projects WHERE organization_id = $1 ORDER BY name ASC`, [ctx.orgId]),
+    query<{ id: string; name: string }>(`SELECT id, name FROM inventory WHERE organization_id = $1 ORDER BY name ASC`, [ctx.orgId]),
   ]);
 
   let initial = null;
@@ -63,6 +70,8 @@ export default async function SalesOrderFormPage({ id }: { id?: string }) {
           itemOptions={itemRows.map((r) => ({ value: r.id, label: r.name, salesPrice: Number(r.sales_price ?? 0) }))}
           paymentTermOptions={paymentTermRows.map((t) => t.name)}
           defaultPaymentTerm={paymentTermRows.find((t) => t.is_default)?.name ?? paymentTermRows[0]?.name ?? "Due on Receipt"}
+          projectOptions={projectRows.map((r) => ({ value: r.id, label: r.name }))}
+          unitOptions={unitRows.map((r) => ({ value: r.id, label: r.name }))}
           currency={org?.currency ?? "AED"}
           initial={initial}
           recordId={id}

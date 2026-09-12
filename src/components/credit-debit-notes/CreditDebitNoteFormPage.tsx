@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { getOrCreateNumberSeries, formatSeriesNumber } from "@/lib/number-series";
 import PageHeader from "@/components/crud/PageHeader";
 import CreditDebitNoteForm from "@/components/credit-debit-notes/CreditDebitNoteForm";
@@ -34,6 +35,7 @@ interface LineRow {
 // adjusts from there for a partial credit/debit.
 export default async function CreditDebitNoteFormPage({ kind, invoiceId }: { kind: "credit" | "debit"; invoiceId: string }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, kind === "credit" ? "credit-notes" : "debit-notes", "write");
 
   const invoice = await queryOne<InvoiceRow>(
     `SELECT id, invoice_number, customer_id, status, subtotal, tax_total FROM invoices WHERE id = $1 AND organization_id = $2`,

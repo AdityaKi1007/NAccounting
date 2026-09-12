@@ -73,6 +73,8 @@ export default function SalesOrderDetailView({
   currency,
   lines,
   vendors,
+  project,
+  unit,
 }: {
   salesOrder: SalesOrderData;
   customer: CustomerData | null;
@@ -80,6 +82,9 @@ export default function SalesOrderDetailView({
   currency: string;
   lines: LineData[];
   vendors: VendorOption[];
+  /** Optional Property Master tags — see sales_orders.project_id/unit_id in entities.ts. */
+  project?: { id: string; name: string } | null;
+  unit?: { id: string; name: string } | null;
 }) {
   const router = useRouter();
   const printRef = useRef<HTMLDivElement>(null);
@@ -404,6 +409,27 @@ export default function SalesOrderDetailView({
                 <p className="text-ink-700">{salesOrder.referenceNumber || "-"}</p>
               </div>
             </div>
+
+            {(project || unit) && (
+              <div className="mt-4 flex flex-wrap gap-6 border-t border-gray-100 pt-4 text-sm">
+                {project && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Project</p>
+                    <Link href={`/projects/${project.id}`} className="text-brand-600 hover:underline">
+                      {project.name}
+                    </Link>
+                  </div>
+                )}
+                {unit && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Unit</p>
+                    <Link href={`/inventory/${unit.id}`} className="text-brand-600 hover:underline">
+                      {unit.name}
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
 
             <table className="mt-6 w-full text-left text-sm">
               <thead className="border-y border-gray-200 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">

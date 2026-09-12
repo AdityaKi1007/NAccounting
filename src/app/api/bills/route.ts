@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { createBill, type BillBody } from "@/lib/bills-api";
 
 // A dedicated route rather than the generic /api/documents/bills one — see bills-api.ts's
@@ -8,6 +9,8 @@ import { createBill, type BillBody } from "@/lib/bills-api";
 export async function POST(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "bills", "write");
+  if (accessError) return accessError;
 
   const body: BillBody = await req.json().catch(() => ({}) as BillBody);
   const result = await createBill(ctx.orgId, body);

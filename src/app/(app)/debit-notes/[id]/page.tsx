@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import CreditDebitNoteDetailView from "@/components/credit-debit-notes/CreditDebitNoteDetailView";
 
@@ -42,6 +43,7 @@ interface JournalLineRow {
 
 export default async function DebitNoteDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "debit-notes", "view");
 
   const note = await queryOne<NoteRow>(
     `SELECT id, debit_note_number, debit_note_date, status, subtotal, tax_total, total, reference_number, reason, customer_id, invoice_id

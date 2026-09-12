@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { createReceipt, type ReceiptBody } from "@/lib/receipts-api";
 
 // A dedicated route rather than the generic /api/entities/payments-received one: recording a
@@ -16,6 +17,8 @@ import { createReceipt, type ReceiptBody } from "@/lib/receipts-api";
 export async function POST(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "payments-received", "write");
+  if (accessError) return accessError;
 
   const body: ReceiptBody = await req.json().catch(() => ({}) as ReceiptBody);
   const result = await createReceipt(ctx.orgId, body);

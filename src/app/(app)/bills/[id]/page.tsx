@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, Pencil } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import AttachmentsField from "@/components/attachments/AttachmentsField";
@@ -24,6 +25,18 @@ interface BillRow {
   total: string;
   balance_due: string;
   notes: string | null;
+  project_id: string | null;
+  unit_id: string | null;
+}
+
+interface ProjectRow {
+  id: string;
+  name: string;
+}
+
+interface UnitRow {
+  id: string;
+  name: string;
 }
 
 interface LineRow {
@@ -86,16 +99,18 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
  * /chart-of-accounts/[id], which already lists every journal line posted to it. */
 export default async function BillDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "bills", "view");
 
   const bill = await queryOne<BillRow>(
     `SELECT id, bill_number, vendor_id, bill_date, due_date, order_number, permit_number, subject,
-            payment_terms, accounts_payable_account_id, status, subtotal, tax_total, total, balance_due, notes
+            payment_terms, accounts_payable_account_id, status, subtotal, tax_total, total, balance_due, notes,
+            project_id, unit_id
      FROM bills WHERE id = $1 AND organization_id = $2`,
     [params.id, ctx.orgId]
   );
   if (!bill) notFound();
 
-  const [vendor, apAccount, org, lines, payments, journalLines] = await Promise.all([
+  const [vendor, apAccount, org, lines, payments, journalLines, project, unit] = await Promise.all([
     bill.vendor_id
       ? queryOne<{ id: string; display_name: string }>(`SELECT id, display_name FROM vendors WHERE id = $1 AND organization_id = $2`, [
           bill.vendor_id,
@@ -139,6 +154,12 @@ export default async function BillDetailPage({ params }: { params: { id: string 
        ORDER BY jl.id ASC`,
       [bill.id]
     ),
+    bill.project_id
+      ? queryOne<ProjectRow>(`SELECT id, name FROM projects WHERE id = $1 AND organization_id = $2`, [bill.project_id, ctx.orgId])
+      : Promise.resolve(null),
+    bill.unit_id
+      ? queryOne<UnitRow>(`SELECT id, name FROM inventory WHERE id = $1 AND organization_id = $2`, [bill.unit_id, ctx.orgId])
+      : Promise.resolve(null),
   ]);
 
   const currency = org?.currency ?? "AED";
@@ -197,6 +218,27 @@ export default async function BillDetailPage({ params }: { params: { id: string 
               <Field label="Subject" value={bill.subject} />
               <Field label="Accounts Payable" value={apAccount?.name ?? "Default"} />
             </div>
+
+            {(project || unit) && (
+              <div className="flex flex-wrap gap-6 border-t border-gray-100 pt-4 text-sm">
+                {project && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Project</p>
+                    <Link href={`/projects/${project.id}`} className="text-brand-600 hover:underline">
+                      {project.name}
+                    </Link>
+                  </div>
+                )}
+                {unit && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Unit</p>
+                    <Link href={`/inventory/${unit.id}`} className="text-brand-600 hover:underline">
+                      {unit.name}
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="border-t border-gray-100 pt-4">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Item Table</p>

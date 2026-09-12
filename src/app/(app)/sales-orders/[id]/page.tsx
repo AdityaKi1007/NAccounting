@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { getOrgLogoDataUri } from "@/lib/s3";
 import SalesOrderDetailView from "@/components/sales-orders/SalesOrderDetailView";
@@ -19,6 +20,18 @@ interface SalesOrderRow {
   terms_conditions: string | null;
   converted_invoice_id: string | null;
   converted_purchase_order_id: string | null;
+  project_id: string | null;
+  unit_id: string | null;
+}
+
+interface ProjectRow {
+  id: string;
+  name: string;
+}
+
+interface UnitRow {
+  id: string;
+  name: string;
 }
 
 interface CustomerRow {
@@ -55,16 +68,18 @@ interface VendorRow {
 
 export default async function SalesOrderDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "sales-orders", "view");
 
   const so = await queryOne<SalesOrderRow>(
     `SELECT id, so_number, customer_id, order_date, shipment_date, reference_number, status,
-            subtotal, tax_total, total, notes, terms_conditions, converted_invoice_id, converted_purchase_order_id
+            subtotal, tax_total, total, notes, terms_conditions, converted_invoice_id, converted_purchase_order_id,
+            project_id, unit_id
      FROM sales_orders WHERE id = $1 AND organization_id = $2`,
     [params.id, ctx.orgId]
   );
   if (!so) notFound();
 
-  const [customer, org, lines, vendors, logoDataUri] = await Promise.all([
+  const [customer, org, lines, vendors, logoDataUri, project, unit] = await Promise.all([
     so.customer_id
       ? queryOne<CustomerRow>(
           `SELECT display_name, company_name, billing_address, shipping_address, email FROM customers WHERE id = $1 AND organization_id = $2`,
@@ -89,6 +104,12 @@ export default async function SalesOrderDetailPage({ params }: { params: { id: s
       [ctx.orgId]
     ),
     getOrgLogoDataUri(ctx.orgId),
+    so.project_id
+      ? queryOne<ProjectRow>(`SELECT id, name FROM projects WHERE id = $1 AND organization_id = $2`, [so.project_id, ctx.orgId])
+      : Promise.resolve(null),
+    so.unit_id
+      ? queryOne<UnitRow>(`SELECT id, name FROM inventory WHERE id = $1 AND organization_id = $2`, [so.unit_id, ctx.orgId])
+      : Promise.resolve(null),
   ]);
 
   return (
@@ -135,6 +156,8 @@ export default async function SalesOrderDetailPage({ params }: { params: { id: s
         amount: Number(l.amount),
       }))}
       vendors={vendors.map((v) => ({ id: v.id, displayName: v.display_name }))}
+      project={project ? { id: project.id, name: project.name } : null}
+      unit={unit ? { id: unit.id, name: unit.name } : null}
     />
   );
 }

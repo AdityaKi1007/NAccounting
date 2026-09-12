@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 
 // Feeds the standalone "+ New Credit Note" picker (src/app/(app)/credit-notes/new/page.tsx).
 // Deliberately broader than /api/customers/[id]/unpaid-invoices (which only offers invoices
@@ -12,6 +13,8 @@ import { getApiOrgContext, unauthorized } from "@/lib/api-context";
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "credit-notes", "view");
+  if (accessError) return accessError;
 
   const rows = await query<{
     id: string;

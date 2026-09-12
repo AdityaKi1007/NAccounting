@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getEntity } from "@/lib/entities";
 import { getRow, updateRow, deleteRow, resolveOrgIdForWrite } from "@/lib/crud";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { pool } from "@/lib/db";
 import {
   syncPaymentJournal,
@@ -22,6 +23,8 @@ export async function GET(
   if (!ctx) return unauthorized();
   const entity = getEntity(params.entity);
   if (!entity) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const accessError = await moduleAccessErrorResponse(ctx, params.entity, "view");
+  if (accessError) return accessError;
 
   const row = await getRow(params.entity, ctx.orgId, params.id);
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -39,6 +42,8 @@ export async function PATCH(
   if (entity.restrictedCrud) {
     return NextResponse.json({ error: `${entity.labelPlural} can't be edited directly.` }, { status: 400 });
   }
+  const accessError = await moduleAccessErrorResponse(ctx, params.entity, "write");
+  if (accessError) return accessError;
 
   // Capture every bill this payment currently has an allocation against BEFORE the update —
   // the generic edit form (see entities.ts's payments-made fields) can change amount/status,
@@ -134,6 +139,8 @@ export async function DELETE(
       { status: 400 }
     );
   }
+  const accessError = await moduleAccessErrorResponse(ctx, params.entity, "write");
+  if (accessError) return accessError;
 
   // A deleted Payment Made's own auto-journal is cleaned up for free by ON DELETE CASCADE
   // (see the manual_journals.payment_made_id FK), and so are its bill_payment_allocations

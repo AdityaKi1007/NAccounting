@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, FileText, Pencil } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { getEntity } from "@/lib/entities";
 import { accountCategory, closingBalance } from "@/lib/accounts";
@@ -31,6 +32,7 @@ interface Txn {
 
 export default async function AccountDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "chart-of-accounts", "view");
 
   const account = await queryOne<AccountRow>(
     `SELECT id, name, code, type, description, is_active, project_id, iban_number, bank_name

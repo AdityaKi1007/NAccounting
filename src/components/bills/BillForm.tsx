@@ -63,6 +63,10 @@ interface Props {
   itemOptions: BillItemOption[];
   taxRateOptions: TaxRateOption[];
   customerOptions: BillOption[];
+  /** Optional Property Master tags — see bills.project_id/unit_id, same as Invoices'/Sales
+   * Orders' own (DocumentForm.tsx / SalesOrderForm.tsx). */
+  projectOptions: BillOption[];
+  unitOptions: BillOption[];
 }
 
 /** Bespoke "New Bill" form matching the Zoho Books reference screenshot. Not the generic
@@ -85,6 +89,8 @@ export default function BillForm({
   itemOptions,
   taxRateOptions,
   customerOptions,
+  projectOptions,
+  unitOptions,
 }: Props) {
   const router = useRouter();
   const h = initial?.header ?? {};
@@ -99,6 +105,8 @@ export default function BillForm({
   const [apAccountId, setApAccountId] = useState(String(h.accounts_payable_account_id ?? apAccountOptions[0]?.value ?? ""));
   const [subject, setSubject] = useState(String(h.subject ?? ""));
   const [notes, setNotes] = useState(String(h.notes ?? ""));
+  const [projectId, setProjectId] = useState(String(h.project_id ?? ""));
+  const [unitId, setUnitId] = useState(String(h.unit_id ?? ""));
 
   const [rows, setRows] = useState<LineRow[]>(() => {
     if (initial?.lines?.length) {
@@ -185,6 +193,8 @@ export default function BillForm({
         accounts_payable_account_id: apAccountId || null,
         status,
         notes: notes || null,
+        project_id: projectId || null,
+        unit_id: unitId || null,
         lines: validLines.map((r) => ({
           item_id: r.item_id || null,
           description: r.description,
@@ -282,6 +292,26 @@ export default function BillForm({
           <select className="input max-w-xs" value={apAccountId} onChange={(e) => setApAccountId(e.target.value)}>
             <option value="">Default (Accounts Payable)</option>
             {apAccountOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
+          <label className="label pt-1.5">Project</label>
+          <select className="input max-w-xs" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            <option value="">Select Project</option>
+            {projectOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
+          <label className="label pt-1.5">Unit</label>
+          <select className="input max-w-xs" value={unitId} onChange={(e) => setUnitId(e.target.value)}>
+            <option value="">Select Unit</option>
+            {unitOptions.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, Pencil } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { getEntity } from "@/lib/entities";
@@ -44,6 +45,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
  * to that account. */
 export default async function ExpenseDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "expenses", "view");
 
   const expense = await queryOne<ExpenseRow>(
     `SELECT id, expense_date, account_id, paid_through_account_id, vendor_id, amount, tax_amount,

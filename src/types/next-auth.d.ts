@@ -9,6 +9,8 @@ declare module "next-auth" {
     };
     memberships: Membership[];
     activeOrgId: string | null;
+    // Platform-level flag (users.is_super_admin), not tied to any organization/membership.
+    isSuperAdmin: boolean;
     // Only ever set as part of the payload passed to the client's session update() call
     // (see Topbar/OrganizationsManager) — never persisted on the session itself, just read
     // once by the jwt callback to know it should re-fetch memberships from the database.
@@ -21,5 +23,6 @@ declare module "next-auth/jwt" {
     userId?: string;
     memberships?: Membership[];
     activeOrgId?: string;
+    isSuperAdmin?: boolean;
   }
 }

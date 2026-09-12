@@ -1,12 +1,14 @@
 import { notFound } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { processDueJournalReversals } from "@/lib/journal-reversals";
 import PageHeader from "@/components/crud/PageHeader";
 import JournalForm from "@/components/crud/JournalForm";
 
 export default async function JournalFormPage({ id }: { id?: string }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "manual-journals", "write");
 
   // Lazily auto-publishes any reversing journal whose reverse date has arrived (see
   // src/lib/journal-reversals.ts) — this app has no cron runner, so a visit to any

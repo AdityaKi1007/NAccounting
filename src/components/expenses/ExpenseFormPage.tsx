@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import PageHeader from "@/components/crud/PageHeader";
 import ExpenseForm, { type ExpenseOption } from "@/components/expenses/ExpenseForm";
 
@@ -12,6 +13,7 @@ const EMIRATES = ["Abu Dhabi", "Dubai", "Sharjah", "Ajman", "Umm Al Quwain", "Ra
  * them to the client form as plain props. */
 export default async function ExpenseFormPage({ id }: { id?: string }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "expenses", "write");
 
   const [accountRows, bankRows, vendorRows, customerRows, taxRateRows, org] = await Promise.all([
     query<{ id: string; name: string; code: string | null }>(

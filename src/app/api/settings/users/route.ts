@@ -9,7 +9,7 @@ export async function GET() {
   if (!ctx) return unauthorized();
 
   const rows = await query(
-    `SELECT m.id AS membership_id, m.role, m.created_at AS joined_at, u.id AS user_id, u.name, u.email
+    `SELECT m.id AS membership_id, m.role, m.role_id, m.created_at AS joined_at, u.id AS user_id, u.name, u.email
      FROM memberships m
      JOIN users u ON u.id = m.user_id
      WHERE m.organization_id = $1
@@ -32,9 +32,36 @@ export async function POST(req: NextRequest) {
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const role = ROLES.includes(body.role) ? body.role : "staff";
+  // Only meaningful for 'staff' — see role_permissions/module-access.ts. A blank/omitted
+  // value keeps today's unrestricted behavior for this member.
+  const roleId = role === "staff" && typeof body.roleId === "string" && body.roleId ? body.roleId : null;
 
   if (!email) {
     return NextResponse.json({ error: "Email is required." }, { status: 400 });
+  }
+
+  // Enforce the Super Admin's per-organization user cap (organizations.max_users, null =
+  // unlimited) — set via the Super Admin panel (see /api/super-admin/organizations/[id]).
+  const org = await queryOne<{ max_users: number | null }>(
+    `SELECT max_users FROM organizations WHERE id = $1`,
+    [ctx.orgId]
+  );
+  if (org?.max_users != null) {
+    const countRow = await queryOne<{ count: string }>(
+      `SELECT count(*) FROM memberships WHERE organization_id = $1`,
+      [ctx.orgId]
+    );
+    if (Number(countRow?.count ?? 0) >= org.max_users) {
+      return NextResponse.json(
+        { error: `This organization is limited to ${org.max_users} user${org.max_users === 1 ? "" : "s"} on its current plan.` },
+        { status: 403 }
+      );
+    }
+  }
+
+  if (roleId) {
+    const roleRow = await queryOne(`SELECT id FROM roles WHERE id = $1 AND organization_id = $2`, [roleId, ctx.orgId]);
+    if (!roleRow) return NextResponse.json({ error: "Unknown role." }, { status: 400 });
   }
 
   const client = await pool.connect();
@@ -64,8 +91,8 @@ export async function POST(req: NextRequest) {
     }
 
     await client.query(
-      `INSERT INTO memberships (user_id, organization_id, role) VALUES ($1, $2, $3)`,
-      [user!.id, ctx.orgId, role]
+      `INSERT INTO memberships (user_id, organization_id, role, role_id) VALUES ($1, $2, $3, $4)`,
+      [user!.id, ctx.orgId, role, roleId]
     );
 
     await client.query("COMMIT");

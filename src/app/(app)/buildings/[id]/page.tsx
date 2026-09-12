@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, Pencil, Home } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { formatCurrency, formatDate, titleCase } from "@/lib/format";
 
@@ -52,6 +53,7 @@ function UnitStatusPill({ status }: { status: string }) {
 
 export default async function BuildingDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "buildings", "view");
 
   const building = await queryOne<BuildingRow>(
     `SELECT id, name, code, actual_handover_date, estimated_handover_date, project_id

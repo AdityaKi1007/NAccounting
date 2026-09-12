@@ -108,7 +108,20 @@ export const documentConfigs: Record<string, DocumentConfig> = {
     secondDateLabel: "Expected Shipment Date",
     numberField: "so_number",
     numberPrefix: "SO",
-    extraHeaderFields: ["reference_number", "payment_terms", "delivery_method", "salesperson", "terms_conditions"],
+    // "project_id"/"unit_id" are the optional Property Master tags, same as invoices' own
+    // (see the invoices config above) — SalesOrderForm.tsx renders real selects for these and
+    // submits them like salesperson; updateDocument only touches an extraHeaderField when
+    // it's actually present in the PATCH body, so editing an existing sales order that never
+    // had these values set is unaffected.
+    extraHeaderFields: [
+      "reference_number",
+      "payment_terms",
+      "delivery_method",
+      "salesperson",
+      "terms_conditions",
+      "project_id",
+      "unit_id",
+    ],
     hasLineDiscount: true,
     numberSeriesKey: "sales-orders",
   },

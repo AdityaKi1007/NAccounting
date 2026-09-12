@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { getEntity } from "@/lib/entities";
 import PageHeader from "@/components/crud/PageHeader";
 import CustomerForm from "@/components/crud/CustomerForm";
@@ -10,6 +11,7 @@ export default async function CustomerFormPage({ id }: { id?: string }) {
   if (!entity) notFound();
 
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "customers", "write");
 
   const accountRows = await query<{ id: string; name: string; code: string | null }>(
     `SELECT id, name, code FROM accounts WHERE organization_id = $1 ORDER BY name ASC`,

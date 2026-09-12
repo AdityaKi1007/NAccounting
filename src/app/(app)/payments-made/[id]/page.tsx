@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { getOrgLogoDataUri } from "@/lib/s3";
 import PaymentMadeDetailView from "@/components/payments/PaymentMadeDetailView";
@@ -15,6 +16,18 @@ interface PaymentRow {
   reference_number: string | null;
   status: string;
   notes: string | null;
+  project_id: string | null;
+  unit_id: string | null;
+}
+
+interface ProjectRow {
+  id: string;
+  name: string;
+}
+
+interface UnitRow {
+  id: string;
+  name: string;
 }
 
 interface VendorRow {
@@ -52,16 +65,17 @@ interface JournalLineRow {
 
 export default async function PaymentMadeDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "payments-made", "view");
 
   const payment = await queryOne<PaymentRow>(
     `SELECT id, payment_number, vendor_id, payment_date, amount, payment_mode,
-            bank_account_id, reference_number, status, notes
+            bank_account_id, reference_number, status, notes, project_id, unit_id
      FROM payments_made WHERE id = $1 AND organization_id = $2`,
     [params.id, ctx.orgId]
   );
   if (!payment) notFound();
 
-  const [vendor, bankAccount, allocations, journalLines, org, logoDataUri] = await Promise.all([
+  const [vendor, bankAccount, allocations, journalLines, org, logoDataUri, project, unit] = await Promise.all([
     payment.vendor_id
       ? queryOne<VendorRow>(`SELECT display_name, company_name, billing_address FROM vendors WHERE id = $1 AND organization_id = $2`, [
           payment.vendor_id,
@@ -97,6 +111,12 @@ export default async function PaymentMadeDetailPage({ params }: { params: { id: 
       [ctx.orgId]
     ),
     getOrgLogoDataUri(ctx.orgId),
+    payment.project_id
+      ? queryOne<ProjectRow>(`SELECT id, name FROM projects WHERE id = $1 AND organization_id = $2`, [payment.project_id, ctx.orgId])
+      : Promise.resolve(null),
+    payment.unit_id
+      ? queryOne<UnitRow>(`SELECT id, name FROM inventory WHERE id = $1 AND organization_id = $2`, [payment.unit_id, ctx.orgId])
+      : Promise.resolve(null),
   ]);
 
   return (
@@ -133,6 +153,8 @@ export default async function PaymentMadeDetailPage({ params }: { params: { id: 
         credit: Number(j.credit),
       }))}
       currency={org?.currency ?? "AED"}
+      project={project ? { id: project.id, name: project.name } : null}
+      unit={unit ? { id: unit.id, name: unit.name } : null}
     />
   );
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { defaultFiscalYearRange } from "@/lib/report-dates";
@@ -43,6 +44,7 @@ async function cumulativeCashBalance(orgId: string, throughDate: string) {
 
 export default async function CashFlowPage({ searchParams }: { searchParams: { from?: string; to?: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "reports", "view");
   await processDueJournalReversals(ctx.orgId);
   const org = await queryOne<{ fiscal_year_start: string | null }>(
     `SELECT fiscal_year_start FROM organizations WHERE id = $1`,

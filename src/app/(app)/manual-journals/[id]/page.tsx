@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { processDueJournalReversals } from "@/lib/journal-reversals";
 import JournalDetailView from "@/components/accounting/JournalDetailView";
@@ -36,6 +37,7 @@ interface LinkedJournalRow {
 
 export default async function ManualJournalDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "manual-journals", "view");
 
   // Lazily auto-publishes any reversing journal whose reverse date has arrived (see
   // src/lib/journal-reversals.ts) — this app has no cron runner, so a visit to a journal's

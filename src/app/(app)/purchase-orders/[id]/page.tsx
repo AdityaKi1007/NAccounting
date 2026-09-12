@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { getOrgLogoDataUri } from "@/lib/s3";
 import PurchaseOrderDetailView from "@/components/purchase-orders/PurchaseOrderDetailView";
@@ -47,6 +48,7 @@ interface LineRow {
 
 export default async function PurchaseOrderDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "purchase-orders", "view");
 
   const po = await queryOne<PurchaseOrderRow>(
     `SELECT id, po_number, vendor_id, order_date, expected_delivery_date, reference_number, status,

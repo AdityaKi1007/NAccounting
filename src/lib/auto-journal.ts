@@ -93,6 +93,7 @@ async function replaceJournal(
     paymentMadeId,
     expenseId,
     vendorCreditId,
+    paymentRefundId,
     journalNumber,
     journalDate,
     referenceNumber,
@@ -108,6 +109,7 @@ async function replaceJournal(
     paymentMadeId?: string;
     expenseId?: string;
     vendorCreditId?: string;
+    paymentRefundId?: string;
     journalNumber: string;
     journalDate: string;
     referenceNumber: string;
@@ -129,8 +131,11 @@ async function replaceJournal(
               ? "payment_made_id"
               : expenseId
                 ? "expense_id"
-                : "vendor_credit_id";
-  const linkValue = invoiceId ?? paymentId ?? creditNoteId ?? debitNoteId ?? billId ?? paymentMadeId ?? expenseId ?? vendorCreditId;
+                : vendorCreditId
+                  ? "vendor_credit_id"
+                  : "payment_refund_id";
+  const linkValue =
+    invoiceId ?? paymentId ?? creditNoteId ?? debitNoteId ?? billId ?? paymentMadeId ?? expenseId ?? vendorCreditId ?? paymentRefundId;
 
   await client.query(`DELETE FROM manual_journals WHERE organization_id = $1 AND ${linkColumn} = $2`, [orgId, linkValue]);
   if (lines.length === 0) return;
@@ -138,8 +143,9 @@ async function replaceJournal(
   const header = await client.query<{ id: string }>(
     `INSERT INTO manual_journals
        (organization_id, journal_number, journal_date, reference_number, status, notes,
-        invoice_id, payment_id, credit_note_id, debit_note_id, bill_id, payment_made_id, expense_id, vendor_credit_id)
-     VALUES ($1, $2, $3, $4, 'published', $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+        invoice_id, payment_id, credit_note_id, debit_note_id, bill_id, payment_made_id, expense_id, vendor_credit_id,
+        payment_refund_id)
+     VALUES ($1, $2, $3, $4, 'published', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
     [
       orgId,
       journalNumber,
@@ -154,6 +160,7 @@ async function replaceJournal(
       paymentMadeId ?? null,
       expenseId ?? null,
       vendorCreditId ?? null,
+      paymentRefundId ?? null,
     ]
   );
   const journalId = header.rows[0].id;
@@ -374,6 +381,78 @@ export async function syncPaymentJournal(client: PoolClient, orgId: string, paym
     journalDate: pmt.payment_date,
     referenceNumber: pmt.payment_number,
     notes: `Auto-generated from Payment ${pmt.payment_number}`,
+    lines,
+  });
+}
+
+/** Syncs the auto-journal for one refund issued against a Paid Payment Received — see
+ * payment_refunds (migration 1771000000000_payment_refunds.js) and the "Refund" action on
+ * PaymentDetailView.tsx. A receipt can carry more than one refund over time (partial refunds),
+ * each with its OWN journal keyed by payment_refund_id — unlike every other sync function
+ * above, which replaces THE one journal for a whole document, this replaces just the one
+ * journal for this one refund row, leaving any of the receipt's other refunds' journals alone.
+ *
+ * Reverses exactly the liability syncPaymentJournal posted for the receipt's own unapplied/
+ * excess amount: that sync posts Cr Unearned Revenue for whatever part of a receipt wasn't
+ * applied to an invoice (see its own `unapplied` handling above); refunding that money back to
+ * the customer is the mirror image, Dr Unearned Revenue / Cr the bank/cash account the refund
+ * is paid from, for the refund's amount. createPaymentRefund (payment-refunds-api.ts) is what
+ * enforces the refund can never exceed the receipt's current excess, so this never has to
+ * reason about that — it just posts what the row says. */
+export async function syncPaymentRefundJournal(client: PoolClient, orgId: string, refundId: string) {
+  const refundResult = await client.query<{
+    payment_received_id: string;
+    amount: string;
+    refunded_on: string;
+    from_account_id: string | null;
+    reference_number: string | null;
+  }>(
+    `SELECT payment_received_id, amount, refunded_on, from_account_id, reference_number
+     FROM payment_refunds WHERE id = $1 AND organization_id = $2`,
+    [refundId, orgId]
+  );
+  if (!refundResult.rowCount) return;
+  const refund = refundResult.rows[0];
+
+  const bail = (journalDate: string, referenceNumber: string, journalNumber: string) =>
+    replaceJournal(client, {
+      orgId,
+      paymentRefundId: refundId,
+      journalNumber,
+      journalDate,
+      referenceNumber,
+      notes: "",
+      lines: [],
+    });
+
+  const paymentResult = await client.query<{ payment_number: string }>(
+    `SELECT payment_number FROM payments_received WHERE id = $1 AND organization_id = $2`,
+    [refund.payment_received_id, orgId]
+  );
+  const paymentNumber = paymentResult.rows[0]?.payment_number ?? "Refund";
+  const referenceNumber = refund.reference_number || paymentNumber;
+
+  const amount = round2(Number(refund.amount));
+  if (amount <= 0 || !refund.from_account_id) return bail(refund.refunded_on, referenceNumber, paymentNumber);
+
+  const [bankAccountId, unearnedAccountId] = await Promise.all([
+    getOrCreateBankGLAccount(client, orgId, refund.from_account_id),
+    findAccountId(client, orgId, { types: ["other_current_liability"], nameLike: "unearned" }),
+  ]);
+  if (!bankAccountId || !unearnedAccountId) return bail(refund.refunded_on, referenceNumber, paymentNumber);
+
+  const lines: JournalLineInput[] = [
+    { accountId: unearnedAccountId, description: `Refund against Payment ${paymentNumber}`, debit: amount, credit: 0 },
+    { accountId: bankAccountId, description: `Refund against Payment ${paymentNumber}`, debit: 0, credit: amount },
+  ];
+
+  await replaceJournal(client, {
+    orgId,
+    paymentRefundId: refundId,
+    journalNumber: paymentNumber,
+    journalDate: refund.refunded_on,
+    referenceNumber,
+    notes: `Auto-generated refund against Payment ${paymentNumber}`,
     lines,
   });
 }

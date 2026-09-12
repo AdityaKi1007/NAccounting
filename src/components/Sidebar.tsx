@@ -4,14 +4,37 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { nav } from "@/lib/nav";
+import { nav, type NavItem } from "@/lib/nav";
+import { keyFromHref } from "@/lib/modules";
 import clsx from "clsx";
 
-export default function Sidebar() {
+// Filters the static nav down to modules this member is actually allowed to see — the
+// "hidden from nav" half of the platform's module-access feature (see
+// src/lib/module-access.ts's getVisibleModuleKeys, called from (app)/layout.tsx). Home
+// (href "/") is never in visibleModuleKeys (see modules.ts) and always passes through
+// unfiltered — every member needs somewhere to land after login. A parent group whose every
+// child gets filtered out is dropped entirely rather than shown empty.
+function filterNav(items: NavItem[], visible: Set<string>): NavItem[] {
+  return items
+    .map((item) => {
+      if (item.children) {
+        const children = item.children.filter((c) => visible.has(keyFromHref(c.href)));
+        if (children.length === 0) return null;
+        return { ...item, children };
+      }
+      if (!item.href || item.href === "/" || visible.has(keyFromHref(item.href))) return item;
+      return null;
+    })
+    .filter((item): item is NavItem => item !== null);
+}
+
+export default function Sidebar({ visibleModuleKeys }: { visibleModuleKeys: string[] }) {
   const pathname = usePathname();
+  const visible = new Set(visibleModuleKeys);
+  const filteredNav = filterNav(nav, visible);
 
   const initialOpen = new Set<string>();
-  for (const item of nav) {
+  for (const item of filteredNav) {
     if (item.children?.some((c) => pathname === c.href)) initialOpen.add(item.label);
   }
   if (initialOpen.size === 0) initialOpen.add("Items");
@@ -29,7 +52,7 @@ export default function Sidebar() {
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col overflow-y-auto border-r border-gray-200 bg-white py-2">
       <nav className="flex-1 px-2">
-        {nav.map((item) => {
+        {filteredNav.map((item) => {
           const Icon = item.icon;
           if (!item.children) {
             const active = pathname === item.href;

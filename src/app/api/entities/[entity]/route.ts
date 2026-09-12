@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getEntity } from "@/lib/entities";
 import { listRows, createRow, resolveOrgIdForWrite } from "@/lib/crud";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { pool } from "@/lib/db";
 import {
   syncPaymentJournal,
@@ -17,6 +18,8 @@ export async function GET(_req: NextRequest, { params }: { params: { entity: str
   if (!ctx) return unauthorized();
   const entity = getEntity(params.entity);
   if (!entity) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const accessError = await moduleAccessErrorResponse(ctx, params.entity, "view");
+  if (accessError) return accessError;
 
   const rows = await listRows(params.entity, ctx.orgId);
   return NextResponse.json({ rows });
@@ -33,6 +36,8 @@ export async function POST(req: NextRequest, { params }: { params: { entity: str
       { status: 400 }
     );
   }
+  const accessError = await moduleAccessErrorResponse(ctx, params.entity, "write");
+  if (accessError) return accessError;
 
   const body = await req.json().catch(() => ({}));
   for (const field of entity.fields) {

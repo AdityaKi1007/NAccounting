@@ -1,4 +1,6 @@
 import ReportsTable, { type ReportRow } from "@/components/reports/ReportsTable";
+import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 
 // Flat catalog matching the reference screenshot's layout (Report Name / Category / Type /
 // Last Viewed) rather than the previous grouped-card layout. Category order follows the
@@ -31,7 +33,10 @@ const REPORT_ROWS: ReportRow[] = [
   { label: "Activity Logs & Audit Trail", href: "/reports/activity-logs", category: "Activity", placeholder: true },
 ];
 
-export default function ReportsPage() {
+export default async function ReportsPage() {
+  const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "reports", "view");
+
   return (
     <div>
       <div className="border-b border-gray-200 bg-white px-6 py-4">

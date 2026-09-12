@@ -13,6 +13,7 @@ import TaxPreferencesForm from "@/components/settings/TaxPreferencesForm";
 import CorporateTaxForm from "@/components/settings/CorporateTaxForm";
 import RemindersManager from "@/components/settings/RemindersManager";
 import SettingsEntityList from "@/components/settings/SettingsEntityList";
+import RolePermissionsManager from "@/components/settings/RolePermissionsManager";
 import ApiKeysManager from "@/components/settings/ApiKeysManager";
 import NumberSeriesSettings from "@/components/settings/NumberSeriesSettings";
 import OpeningBalancesManager from "@/components/settings/OpeningBalancesManager";
@@ -149,11 +150,17 @@ export default async function SettingsItemPage({
           <UsersList
             users={
               (await query(
-                `SELECT m.id AS membership_id, m.role, m.created_at AS joined_at, u.id AS user_id, u.name, u.email
+                `SELECT m.id AS membership_id, m.role, m.role_id, m.created_at AS joined_at, u.id AS user_id, u.name, u.email
                  FROM memberships m
                  JOIN users u ON u.id = m.user_id
                  WHERE m.organization_id = $1
                  ORDER BY m.created_at ASC`,
+                [ctx.orgId]
+              )) as never[]
+            }
+            roles={
+              (await query<{ id: string; name: string }>(
+                `SELECT id, name FROM roles WHERE organization_id = $1 ORDER BY name ASC`,
                 [ctx.orgId]
               )) as never[]
             }
@@ -251,7 +258,26 @@ export default async function SettingsItemPage({
           />
         )}
 
-        {item.view === "roles-list" && <SettingsEntityList entityKey="roles" orgId={ctx.orgId} />}
+        {item.view === "roles-list" && (
+          <div className="space-y-8">
+            <SettingsEntityList entityKey="roles" orgId={ctx.orgId} />
+            <div className="border-t border-gray-200 pt-6">
+              <h3 className="mb-1 text-sm font-semibold text-ink-800">Module Permissions</h3>
+              <p className="mb-4 text-sm text-gray-500">
+                Define what each role can view and edit. Only applies to a &apos;Staff&apos; member once this role is
+                assigned to them under Users &amp; Roles → Users — Owners and Admins always have full access.
+              </p>
+              <RolePermissionsManager
+                roles={
+                  (await query<{ id: string; name: string }>(
+                    `SELECT id, name FROM roles WHERE organization_id = $1 ORDER BY name ASC`,
+                    [ctx.orgId]
+                  ))
+                }
+              />
+            </div>
+          </div>
+        )}
         {item.view === "currencies-list" && <SettingsEntityList entityKey="currencies" orgId={ctx.orgId} />}
         {item.view === "payment-terms-list" && <SettingsEntityList entityKey="payment-terms" orgId={ctx.orgId} />}
 

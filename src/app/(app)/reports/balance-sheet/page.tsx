@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { defaultAsOfDate } from "@/lib/report-dates";
@@ -81,6 +82,7 @@ function Section({ title, lines, balanceFn }: { title: string; lines: AccountLin
 
 export default async function BalanceSheetPage({ searchParams }: { searchParams: { asOf?: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "reports", "view");
   await processDueJournalReversals(ctx.orgId);
   const asOf = searchParams.asOf || defaultAsOfDate();
 

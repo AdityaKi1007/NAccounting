@@ -338,7 +338,7 @@ export const entities: Record<string, EntityDef> = {
     // over the generic [slug]/[id] one above regardless of "kind").
     hasDetailView: true,
     orderBy: "created_at desc",
-    listColumns: ["so_number", "customer_id", "order_date", "shipment_date", "status", "total"],
+    listColumns: ["so_number", "customer_id", "unit_id", "order_date", "shipment_date", "status", "total"],
     fields: [
       { name: "so_number", label: "Sales Order #", type: "text", required: true },
       { name: "customer_id", label: "Customer", type: "select", refEntity: "customers", refLabelField: "display_name", required: true },
@@ -348,6 +348,14 @@ export const entities: Record<string, EntityDef> = {
       { name: "payment_terms", label: "Payment Terms", type: "text" },
       { name: "delivery_method", label: "Delivery Method", type: "text" },
       { name: "salesperson", label: "Salesperson", type: "text" },
+      // Optional Property Master tags (same pattern/reasoning as invoices.project_id/unit_id
+      // above) — SalesOrderForm.tsx (the real edit form for this "sales_order" kind) never
+      // reads entity.fields at all, so these entries exist purely so the generic list/detail
+      // machinery (DataTable's refEntity auto-link, loadRefOptions) can resolve+show them.
+      // "unit_id" is in listColumns per the user's own request; "project_id" is left off the
+      // (already busy) list, same restraint already applied to invoices' own project_id.
+      { name: "project_id", label: "Project", type: "select", refEntity: "projects", refLabelField: "name" },
+      { name: "unit_id", label: "Unit", type: "select", refEntity: "inventory", refLabelField: "name" },
       {
         name: "status",
         label: "Status",
@@ -924,6 +932,15 @@ export const entities: Record<string, EntityDef> = {
         ],
       },
       { name: "notes", label: "Notes", type: "textarea" },
+      // Optional Property Master tags (same pattern/reasoning as invoices.project_id/unit_id
+      // above) — BillForm.tsx renders real selects for these directly (see the "kind" comment
+      // at the top of this entity: BillForm never reads entity.fields at all), so these entries
+      // exist purely so the generic list/detail machinery (DataTable's refEntity auto-link,
+      // loadRefOptions) could resolve+show them if either were ever added to listColumns —
+      // neither is, for now, matching the same restraint already applied to Invoices/Sales
+      // Orders' own Project field.
+      { name: "project_id", label: "Project", type: "select", refEntity: "projects", refLabelField: "name" },
+      { name: "unit_id", label: "Unit", type: "select", refEntity: "inventory", refLabelField: "name" },
       // Display-only for the list view (same reasoning as invoices'/sales-orders' "total"
       // entries) — BillForm.tsx never reads entity.fields, so this is invisible to editing.
       { name: "total", label: "Total", type: "currency" },
@@ -1020,6 +1037,13 @@ export const entities: Record<string, EntityDef> = {
       // required "Deposit To".
       { name: "bank_account_id", label: "Paid Through", type: "select", refEntity: "bank-accounts", refLabelField: "account_name", required: true },
       { name: "reference_number", label: "Reference #", type: "text" },
+      // Optional Property Master tags (same pattern/reasoning as payments-received's own
+      // project_id/unit_id above) — RecordPaymentMadeForm.tsx renders these directly for
+      // create; this entry is what makes them show up and save correctly on the generic
+      // EntityForm used for editing an existing payment (see the "kind" comment at the top of
+      // this entity). Not in listColumns, same decision as Payments Received.
+      { name: "project_id", label: "Project", type: "select", refEntity: "projects", refLabelField: "name" },
+      { name: "unit_id", label: "Unit", type: "select", refEntity: "inventory", refLabelField: "name" },
       {
         name: "status",
         label: "Status",

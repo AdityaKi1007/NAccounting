@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { claimNextNumber } from "@/lib/number-series";
 import { syncJournalReversal } from "@/lib/journal-reversals";
 
@@ -29,6 +30,8 @@ interface Body {
 export async function POST(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "manual-journals", "write");
+  if (accessError) return accessError;
 
   const body: Body = await req.json().catch(() => ({ header: {}, lines: [] }));
   const lines = (body.lines ?? []).filter((l) => l.account_id && (Number(l.debit) > 0 || Number(l.credit) > 0));

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { getOrgLogoDataUri } from "@/lib/s3";
 import PaymentDetailView from "@/components/payments/PaymentDetailView";
@@ -64,8 +65,26 @@ interface JournalLineRow {
   credit: string;
 }
 
+interface RefundRow {
+  id: string;
+  amount: string;
+  refunded_on: string;
+  payment_mode: string;
+  reference_number: string | null;
+  description: string | null;
+  from_account_name: string | null;
+}
+
+interface RefundJournalLineRow {
+  payment_refund_id: string;
+  account_name: string;
+  debit: string;
+  credit: string;
+}
+
 export default async function PaymentDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "payments-received", "view");
 
   const payment = await queryOne<PaymentRow>(
     `SELECT id, payment_number, customer_id, payment_date, amount, bank_charges, payment_mode,
@@ -75,7 +94,8 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
   );
   if (!payment) notFound();
 
-  const [customer, bankAccount, allocations, journalLines, org, project, unit, logoDataUri] = await Promise.all([
+  const [customer, bankAccount, allocations, journalLines, org, project, unit, logoDataUri, refunds, refundJournalLines] =
+    await Promise.all([
     payment.customer_id
       ? queryOne<CustomerRow>(
           `SELECT display_name, company_name, billing_address, email FROM customers WHERE id = $1 AND organization_id = $2`,
@@ -117,7 +137,27 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
       ? queryOne<UnitRow>(`SELECT id, name FROM inventory WHERE id = $1 AND organization_id = $2`, [payment.unit_id, ctx.orgId])
       : Promise.resolve(null),
     getOrgLogoDataUri(ctx.orgId),
+    query<RefundRow>(
+      `SELECT pr.id, pr.amount, pr.refunded_on, pr.payment_mode, pr.reference_number, pr.description,
+              ba.account_name AS from_account_name
+       FROM payment_refunds pr
+       LEFT JOIN bank_accounts ba ON ba.id = pr.from_account_id
+       WHERE pr.payment_received_id = $1
+       ORDER BY pr.refunded_on ASC, pr.created_at ASC`,
+      [payment.id]
+    ),
+    query<RefundJournalLineRow>(
+      `SELECT mj.payment_refund_id, a.name AS account_name, jl.debit, jl.credit
+       FROM journal_lines jl
+       JOIN manual_journals mj ON mj.id = jl.journal_id
+       JOIN accounts a ON a.id = jl.account_id
+       WHERE mj.payment_refund_id IN (SELECT id FROM payment_refunds WHERE payment_received_id = $1)
+       ORDER BY jl.id ASC`,
+      [payment.id]
+    ),
   ]);
+
+  const previouslyRefunded = refunds.reduce((sum, r) => sum + Number(r.amount), 0);
 
   return (
     <PaymentDetailView
@@ -157,6 +197,19 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
       currency={org?.currency ?? "AED"}
       project={project ? { id: project.id, name: project.name } : null}
       unit={unit ? { id: unit.id, name: unit.name } : null}
+      refunds={refunds.map((r) => ({
+        id: r.id,
+        amount: Number(r.amount),
+        refundedOn: r.refunded_on,
+        paymentMode: r.payment_mode,
+        referenceNumber: r.reference_number,
+        description: r.description,
+        fromAccountName: r.from_account_name,
+        journalLines: refundJournalLines
+          .filter((j) => j.payment_refund_id === r.id)
+          .map((j) => ({ accountName: j.account_name, debit: Number(j.debit), credit: Number(j.credit) })),
+      }))}
+      previouslyRefunded={previouslyRefunded}
     />
   );
 }

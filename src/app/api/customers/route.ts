@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { extractHeaderValues, type CustomerHeaderInput, type ContactPersonInput } from "@/lib/customers";
 import { syncOpeningBalanceJournal } from "@/lib/auto-journal";
 
@@ -12,6 +13,8 @@ interface Body {
 export async function POST(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "customers", "write");
+  if (accessError) return accessError;
 
   const body: Body = await req.json().catch(() => ({ header: {}, contacts: [] }));
   const displayName = (body.header?.display_name ?? "").toString().trim();

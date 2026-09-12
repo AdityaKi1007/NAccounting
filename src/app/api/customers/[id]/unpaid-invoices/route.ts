@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 
 // Feeds the "Unpaid Invoices" table in the Record Payment form. Only invoices that have
 // actually been sent to the customer and still carry a balance are eligible for a payment
@@ -10,6 +11,8 @@ import { getApiOrgContext, unauthorized } from "@/lib/api-context";
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "payments-received", "view");
+  if (accessError) return accessError;
 
   const rows = await query<{
     id: string;

@@ -47,11 +47,16 @@ function autoApply(amountPaid: number, bills: OpenBill[]): Record<string, number
 export default function RecordPaymentMadeForm({
   vendorOptions,
   bankAccountOptions,
+  projectOptions = [],
+  unitOptions = [],
   currency,
   numberPreview,
 }: {
   vendorOptions: ComboboxOption[];
   bankAccountOptions: ComboboxOption[];
+  /** Optional Property Master Project/Unit tags — see payments_made.project_id/unit_id. */
+  projectOptions?: ComboboxOption[];
+  unitOptions?: ComboboxOption[];
   currency: string;
   numberPreview?: string;
 }) {
@@ -65,6 +70,8 @@ export default function RecordPaymentMadeForm({
   const [bankAccountId, setBankAccountId] = useState(bankAccountOptions[0]?.value ?? "");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [notes, setNotes] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [unitId, setUnitId] = useState("");
 
   const [bills, setBills] = useState<OpenBill[]>([]);
   const [loadingBills, setLoadingBills] = useState(false);
@@ -148,6 +155,8 @@ export default function RecordPaymentMadeForm({
         bank_account_id: bankAccountId,
         reference_number: referenceNumber || null,
         notes: notes || null,
+        project_id: projectId || null,
+        unit_id: unitId || null,
         status,
         allocations: bills
           .filter((b) => (allocations[b.id] ?? 0) > 0)
@@ -232,6 +241,26 @@ export default function RecordPaymentMadeForm({
 
           <label className="label pt-2">Reference#</label>
           <input type="text" className="input max-w-sm" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} />
+
+          <label className="label pt-2">Project</label>
+          <select className="input max-w-sm" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            <option value="">Select Project</option>
+            {projectOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
+          <label className="label pt-2">Unit</label>
+          <select className="input max-w-sm" value={unitId} onChange={(e) => setUnitId(e.target.value)}>
+            <option value="">Select Unit</option>
+            {unitOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="border-t border-gray-100 pt-5">

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { ChevronLeft, History } from "lucide-react";
+import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 
 // Placeholder only — this app has no audit-log table at all today (no record of who changed
 // what and when across the app). A real Activity Log/Audit Trail needs a new logging system
@@ -7,7 +9,10 @@ import { ChevronLeft, History } from "lucide-react";
 // derived from existing data the way every other report in this section is. Shown here
 // (rather than omitted from the list) so the report catalog matches the reference screenshot,
 // with the entry-point ready for when that logging feature is built.
-export default function ActivityLogsPage() {
+export default async function ActivityLogsPage() {
+  const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "reports", "view");
+
   return (
     <div>
       <div className="border-b border-gray-200 bg-white px-6 py-4">

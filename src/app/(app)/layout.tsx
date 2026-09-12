@@ -1,5 +1,6 @@
 import { requireActiveContext } from "@/lib/session";
 import { queryOne } from "@/lib/db";
+import { getVisibleModuleKeys } from "@/lib/module-access";
 import { resolveAccentBase, rampCssVars } from "@/lib/theme";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
@@ -12,13 +13,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     [ctx.orgId]
   );
   const accentBase = resolveAccentBase(branding?.accent_color ?? "blue", branding?.accent_custom_hex ?? null);
+  const visibleModuleKeys = Array.from(await getVisibleModuleKeys(ctx));
 
   return (
     <div className="flex h-screen flex-col">
       <style>{`:root { ${rampCssVars(accentBase)} }`}</style>
       <Topbar orgName={ctx.orgName} />
       <div className="flex min-h-0 flex-1">
-        <Sidebar />
+        <Sidebar visibleModuleKeys={visibleModuleKeys} />
         <main className="min-w-0 flex-1 overflow-y-auto bg-[#f4f5f9]">{children}</main>
       </div>
     </div>

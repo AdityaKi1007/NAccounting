@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
 import { getOrCreateNumberSeries } from "@/lib/number-series";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import PageHeader from "@/components/crud/PageHeader";
 import BillForm, { type BillOption, type BillItemOption } from "@/components/bills/BillForm";
 
@@ -11,8 +12,9 @@ import BillForm, { type BillOption, type BillItemOption } from "@/components/bil
  * bills-api.ts for why (per-line account/tax/customer). */
 export default async function BillFormPage({ id }: { id?: string }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "bills", "write");
 
-  const [vendorRows, accountRows, apAccountRows, itemRows, taxRateRows, customerRows, series, org] = await Promise.all([
+  const [vendorRows, accountRows, apAccountRows, itemRows, taxRateRows, customerRows, series, org, projectRows, unitRows] = await Promise.all([
     query<{ id: string; display_name: string }>(
       `SELECT id, display_name FROM vendors WHERE organization_id = $1 ORDER BY display_name ASC`,
       [ctx.orgId]
@@ -43,6 +45,11 @@ export default async function BillFormPage({ id }: { id?: string }) {
     ),
     getOrCreateNumberSeries(ctx.orgId, "bills"),
     queryOne<{ currency: string }>(`SELECT currency FROM organizations WHERE id = $1`, [ctx.orgId]),
+    // Property Master Project/Unit options — same tags Invoices/Sales Orders already offer
+    // (see DocumentFormPage.tsx's isInvoices-gated queries / SalesOrderFormPage.tsx's own);
+    // Bills always fetches them since it's its own bespoke page, not a generic one.
+    query<{ id: string; name: string }>(`SELECT id, name FROM projects WHERE organization_id = $1 ORDER BY name ASC`, [ctx.orgId]),
+    query<{ id: string; name: string }>(`SELECT id, name FROM inventory WHERE organization_id = $1 ORDER BY name ASC`, [ctx.orgId]),
   ]);
 
   const vendorOptions: BillOption[] = vendorRows.map((r) => ({ value: r.id, label: r.display_name }));
@@ -51,6 +58,8 @@ export default async function BillFormPage({ id }: { id?: string }) {
   const itemOptions: BillItemOption[] = itemRows.map((r) => ({ value: r.id, label: r.name, purchasePrice: Number(r.purchase_price) }));
   const taxRateOptions = taxRateRows.map((r) => ({ value: r.id, label: r.name, rate: Number(r.rate) }));
   const customerOptions: BillOption[] = customerRows.map((r) => ({ value: r.id, label: r.display_name }));
+  const projectOptions: BillOption[] = projectRows.map((r) => ({ value: r.id, label: r.name }));
+  const unitOptions: BillOption[] = unitRows.map((r) => ({ value: r.id, label: r.name }));
 
   let initial: { header: Record<string, unknown>; lines: Record<string, unknown>[] } | null = null;
   if (id) {
@@ -78,6 +87,8 @@ export default async function BillFormPage({ id }: { id?: string }) {
           itemOptions={itemOptions}
           taxRateOptions={taxRateOptions}
           customerOptions={customerOptions}
+          projectOptions={projectOptions}
+          unitOptions={unitOptions}
         />
       </div>
     </div>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, Pencil, Mail, Phone, Users as UsersIcon, Receipt, Plus } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { getOrgLogoDataUri } from "@/lib/s3";
 import { getEntity } from "@/lib/entities";
@@ -216,6 +217,7 @@ function TransactionGroupCard({
 
 export default async function CustomerDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "customers", "view");
 
   const customer = await queryOne<CustomerRow>(
     `SELECT id, customer_type, display_name, secondary_display_name, company_name, email, work_phone, mobile,

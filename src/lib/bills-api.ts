@@ -37,6 +37,10 @@ export interface BillBody {
   accounts_payable_account_id?: string | null;
   status?: string; // draft | open — never paid/partially_paid/overdue directly, see below
   notes?: string;
+  /** Optional Property Master tags — see bills.project_id/unit_id (migration
+   * 1770000000000_bills_payments_made_project_unit.js). */
+  project_id?: string | null;
+  unit_id?: string | null;
   lines?: BillLineInput[];
 }
 
@@ -136,8 +140,8 @@ export async function createBill(orgId: string, body: BillBody): Promise<BillAct
       `INSERT INTO bills
          (organization_id, bill_number, vendor_id, bill_date, due_date, order_number, permit_number,
           subject, payment_terms, accounts_payable_account_id, status, subtotal, tax_total, total,
-          balance_due, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+          balance_due, notes, project_id, unit_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        RETURNING id`,
       [
         orgId,
@@ -156,6 +160,8 @@ export async function createBill(orgId: string, body: BillBody): Promise<BillAct
         total,
         total,
         body.notes || null,
+        body.project_id || null,
+        body.unit_id || null,
       ]
     );
     const billId = headerResult.rows[0].id;
@@ -223,7 +229,8 @@ export async function updateBill(orgId: string, id: string, body: BillBody): Pro
       `UPDATE bills SET
          vendor_id = $3, bill_date = $4, due_date = $5, order_number = $6, permit_number = $7,
          subject = $8, payment_terms = $9, accounts_payable_account_id = $10, status = $11,
-         subtotal = $12, tax_total = $13, total = $14, balance_due = $15, notes = $16
+         subtotal = $12, tax_total = $13, total = $14, balance_due = $15, notes = $16,
+         project_id = $17, unit_id = $18
        WHERE organization_id = $1 AND id = $2`,
       [
         orgId,
@@ -242,6 +249,8 @@ export async function updateBill(orgId: string, id: string, body: BillBody): Pro
         total,
         balanceDue,
         body.notes || null,
+        body.project_id || null,
+        body.unit_id || null,
       ]
     );
 

@@ -1,5 +1,6 @@
 import { query, queryOne } from "@/lib/db";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { getOrCreateNumberSeries, formatSeriesNumber } from "@/lib/number-series";
 import RecordPaymentMadeForm from "@/components/payments/RecordPaymentMadeForm";
 
@@ -7,8 +8,9 @@ import RecordPaymentMadeForm from "@/components/payments/RecordPaymentMadeForm";
  * RecordPaymentFormPage.tsx. */
 export default async function RecordPaymentMadeFormPage() {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "payments-made", "write");
 
-  const [vendors, bankAccounts, org, series] = await Promise.all([
+  const [vendors, bankAccounts, projects, units, org, series] = await Promise.all([
     query<{ id: string; display_name: string; company_name: string | null }>(
       `SELECT id, display_name, company_name FROM vendors WHERE organization_id = $1 AND is_active = true ORDER BY display_name ASC`,
       [ctx.orgId]
@@ -17,6 +19,8 @@ export default async function RecordPaymentMadeFormPage() {
       `SELECT id, account_name, is_primary FROM bank_accounts WHERE organization_id = $1 ORDER BY is_primary DESC, account_name ASC`,
       [ctx.orgId]
     ),
+    query<{ id: string; name: string }>(`SELECT id, name FROM projects WHERE organization_id = $1 ORDER BY name ASC`, [ctx.orgId]),
+    query<{ id: string; name: string }>(`SELECT id, name FROM inventory WHERE organization_id = $1 ORDER BY name ASC`, [ctx.orgId]),
     queryOne<{ currency: string }>(`SELECT currency FROM organizations WHERE id = $1`, [ctx.orgId]),
     getOrCreateNumberSeries(ctx.orgId, "payments-made"),
   ]);
@@ -28,6 +32,8 @@ export default async function RecordPaymentMadeFormPage() {
         label: v.company_name ? `${v.display_name} (${v.company_name})` : v.display_name,
       }))}
       bankAccountOptions={bankAccounts.map((b) => ({ value: b.id, label: b.account_name }))}
+      projectOptions={projects.map((p) => ({ value: p.id, label: p.name }))}
+      unitOptions={units.map((u) => ({ value: u.id, label: u.name }))}
       currency={org?.currency ?? "AED"}
       numberPreview={series.mode === "auto" ? formatSeriesNumber(series) : undefined}
     />

@@ -23,6 +23,10 @@ export interface PaymentMadeBody {
   bank_account_id?: string;
   reference_number?: string;
   notes?: string;
+  /** Optional Property Master tags — see payments_made.project_id/unit_id (migration
+   * 1770000000000_bills_payments_made_project_unit.js), same pattern as payments_received's. */
+  project_id?: string | null;
+  unit_id?: string | null;
   status?: string;
   allocations?: { bill_id: string; amount: number }[];
 }
@@ -69,8 +73,8 @@ export async function createPaymentMade(orgId: string, body: PaymentMadeBody): P
 
     const paymentResult = await client.query<{ id: string }>(
       `INSERT INTO payments_made
-         (organization_id, payment_number, vendor_id, payment_date, amount, payment_mode, bank_account_id, reference_number, notes, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         (organization_id, payment_number, vendor_id, payment_date, amount, payment_mode, bank_account_id, reference_number, notes, status, project_id, unit_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING id`,
       [
         orgId,
@@ -83,6 +87,8 @@ export async function createPaymentMade(orgId: string, body: PaymentMadeBody): P
         body.reference_number || null,
         body.notes || null,
         status,
+        body.project_id || null,
+        body.unit_id || null,
       ]
     );
     const paymentId = paymentResult.rows[0].id;

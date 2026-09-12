@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, Pencil, Download, Printer, Mail } from "lucide-react";
+import { ChevronLeft, ChevronDown, ChevronRight, Pencil, Download, Printer, Mail, Undo2 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { generatePdfBlob, downloadPdfBlob } from "@/lib/pdf-export";
 import JournalPanel, { type JournalLineData } from "@/components/accounting/JournalPanel";
@@ -29,6 +29,19 @@ interface AllocationData {
   amount: number;
 }
 
+interface RefundData {
+  id: string;
+  amount: number;
+  refundedOn: string;
+  paymentMode: string;
+  referenceNumber: string | null;
+  description: string | null;
+  fromAccountName: string | null;
+  journalLines: JournalLineData[];
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 function paymentModeLabel(mode: string) {
   return mode
     .split("_")
@@ -48,6 +61,8 @@ export default function PaymentDetailView({
   currency,
   project,
   unit,
+  refunds = [],
+  previouslyRefunded = 0,
 }: {
   payment: PaymentData;
   customerName: string;
@@ -61,14 +76,25 @@ export default function PaymentDetailView({
   /** Optional Property Master tags — see payments_received.project_id/unit_id. */
   project?: { id: string; name: string } | null;
   unit?: { id: string; name: string } | null;
+  /** Refund history — see payment_refunds (migration 1771000000000_payment_refunds.js) and
+   * the "Refund" button below. */
+  refunds?: RefundData[];
+  previouslyRefunded?: number;
 }) {
   const printRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [emailRefreshSignal, setEmailRefreshSignal] = useState(0);
+  const [refundHistoryOpen, setRefundHistoryOpen] = useState(false);
 
   const totalApplied = allocations.reduce((sum, a) => sum + a.amount, 0);
-  const overpayment = Math.max(0, payment.amount - totalApplied);
+  // "Over Payment" is what's STILL unrefunded excess — the original unapplied amount minus
+  // whatever's already been refunded — not the full original excess (which is what "Payment
+  // Refund" below plus this add back up to). Matches the Zoho reference screenshot: an
+  // AED1,000 receipt with AED900 applied and AED69 already refunded shows "Payment Refund:
+  // 69.00" / "Over Payment: 31.00", not "Over Payment: 100.00".
+  const overpayment = Math.max(0, round2(payment.amount - totalApplied - previouslyRefunded));
+  const canRefund = payment.status === "paid" && overpayment > 0.005;
 
   async function downloadPdf() {
     if (!printRef.current) return;
@@ -113,11 +139,57 @@ export default function PaymentDetailView({
             <button type="button" onClick={() => setEmailModalOpen(true)} className="btn-secondary">
               <Mail size={14} /> Send Email
             </button>
+            {canRefund && (
+              <Link href={`/payments-received/${payment.id}/refund`} className="btn-secondary">
+                <Undo2 size={14} /> Refund
+              </Link>
+            )}
           </div>
         </div>
       </div>
 
       <div className="p-6">
+        {refunds.length > 0 && (
+          <div className="no-print mb-6 card overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setRefundHistoryOpen((v) => !v)}
+              className="flex w-full items-center justify-between px-4 py-3 text-left"
+            >
+              <span className="text-sm font-medium text-ink-800">
+                Refund History <span className="ml-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">{refunds.length}</span>
+              </span>
+              {refundHistoryOpen ? <ChevronDown size={16} className="text-gray-400" /> : <ChevronRight size={16} className="text-gray-400" />}
+            </button>
+            {refundHistoryOpen && (
+              <div className="border-t border-gray-100">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-gray-50 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                    <tr>
+                      <th className="px-4 py-2">Refunded On</th>
+                      <th className="px-4 py-2 text-right">Amount</th>
+                      <th className="px-4 py-2">Payment Mode</th>
+                      <th className="px-4 py-2">From Account</th>
+                      <th className="px-4 py-2">Reference#</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {refunds.map((r) => (
+                      <tr key={r.id}>
+                        <td className="px-4 py-2 text-ink-700">{formatDate(r.refundedOn)}</td>
+                        <td className="px-4 py-2 text-right text-ink-800">{formatCurrency(r.amount, currency)}</td>
+                        <td className="px-4 py-2 text-ink-700">{paymentModeLabel(r.paymentMode)}</td>
+                        <td className="px-4 py-2 text-ink-700">{r.fromAccountName ?? "-"}</td>
+                        <td className="px-4 py-2 text-ink-700">{r.referenceNumber || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
           <div ref={printRef} className="bg-white p-8">
             <div className="flex items-start justify-between">
@@ -203,10 +275,20 @@ export default function PaymentDetailView({
               </div>
             )}
 
-            {overpayment > 0.005 && (
-              <div className="mt-6 flex items-center justify-between border-t border-gray-100 pt-4">
-                <span className="text-sm font-medium text-ink-800">Over Payment</span>
-                <span className="text-sm font-semibold text-ink-900">{formatCurrency(overpayment, currency)}</span>
+            {(previouslyRefunded > 0.005 || overpayment > 0.005) && (
+              <div className="mt-6 flex flex-wrap gap-8 border-t border-gray-100 pt-4">
+                {previouslyRefunded > 0.005 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Payment Refund</p>
+                    <p className="text-sm font-semibold text-ink-900">{formatCurrency(previouslyRefunded, currency)}</p>
+                  </div>
+                )}
+                {overpayment > 0.005 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Over Payment</p>
+                    <p className="text-sm font-semibold text-ink-900">{formatCurrency(overpayment, currency)}</p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -251,6 +333,14 @@ export default function PaymentDetailView({
 
         <div className="mt-6">
           <JournalPanel title={`Payment - ${payment.paymentNumber}`} lines={journalLines} currency={currency} />
+          {refunds.map((r) => (
+            <JournalPanel
+              key={r.id}
+              title={`Refund - ${formatDate(r.refundedOn)} - ${formatCurrency(r.amount, currency)}`}
+              lines={r.journalLines}
+              currency={currency}
+            />
+          ))}
         </div>
 
         <div className="no-print mt-6 card p-5">

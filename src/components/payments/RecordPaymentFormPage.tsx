@@ -1,10 +1,12 @@
 import { query, queryOne } from "@/lib/db";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { getOrCreateNumberSeries, formatSeriesNumber } from "@/lib/number-series";
 import RecordPaymentForm from "@/components/payments/RecordPaymentForm";
 
 export default async function RecordPaymentFormPage() {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "payments-received", "write");
 
   const [customers, bankAccounts, projects, units, org, series] = await Promise.all([
     query<{ id: string; display_name: string; company_name: string | null }>(

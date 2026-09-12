@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { documentConfigs } from "@/lib/documents";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { getDocument, updateDocument, type DocumentBody } from "@/lib/documents-api";
 
 export async function GET(
@@ -12,6 +13,8 @@ export async function GET(
   if (!ctx) return unauthorized();
   const cfg = documentConfigs[params.entity];
   if (!cfg) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const accessError = await moduleAccessErrorResponse(ctx, params.entity, "view");
+  if (accessError) return accessError;
 
   const doc = await getDocument(cfg, ctx.orgId, params.id);
   if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -27,6 +30,8 @@ export async function PATCH(
   if (!ctx) return unauthorized();
   const cfg = documentConfigs[params.entity];
   if (!cfg) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const accessError = await moduleAccessErrorResponse(ctx, params.entity, "write");
+  if (accessError) return accessError;
 
   const body: DocumentBody = await req.json().catch(() => ({ header: {}, lines: [] }));
   const result = await updateDocument(cfg, ctx.orgId, params.id, body);
@@ -42,6 +47,8 @@ export async function DELETE(
   if (!ctx) return unauthorized();
   const cfg = documentConfigs[params.entity];
   if (!cfg) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const accessError = await moduleAccessErrorResponse(ctx, params.entity, "write");
+  if (accessError) return accessError;
 
   await pool.query(`DELETE FROM ${cfg.headerTable} WHERE organization_id = $1 AND id = $2`, [ctx.orgId, params.id]);
   return NextResponse.json({ ok: true });

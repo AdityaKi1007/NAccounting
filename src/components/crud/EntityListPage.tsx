@@ -1,6 +1,7 @@
 import { getEntity } from "@/lib/entities";
 import { listRows, loadRefOptions } from "@/lib/crud";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { processDueJournalReversals } from "@/lib/journal-reversals";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/crud/PageHeader";
@@ -11,6 +12,7 @@ export default async function EntityListPage({ entityKey }: { entityKey: string 
   if (!entity) notFound();
 
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, entityKey, "view");
   // Lazily auto-publishes any reversing journal whose reverse date has arrived (see
   // src/lib/journal-reversals.ts) — this app has no cron runner, so a visit to the Manual
   // Journals list is one of the few places that check can happen.

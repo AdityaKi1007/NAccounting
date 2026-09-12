@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { ChevronLeft, Undo2 } from "lucide-react";
+import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 
 // Placeholder only — this app has no refund feature or table at all yet, for either the
 // customer side (Payments Received) or the vendor side (Payments Made). A real Refund
@@ -8,7 +10,10 @@ import { ChevronLeft, Undo2 } from "lucide-react";
 // this report page can derive from existing data. Shown here (rather than omitted from the
 // list) so the report catalog matches the reference screenshot and it's clear this is a known
 // gap, not a missing page.
-export default function RefundHistoryPage() {
+export default async function RefundHistoryPage() {
+  const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "reports", "view");
+
   return (
     <div>
       <div className="border-b border-gray-200 bg-white px-6 py-4">

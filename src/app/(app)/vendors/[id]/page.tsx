@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, Pencil, Mail as MailIcon, Phone, Receipt, Plus } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { getOrgLogoDataUri } from "@/lib/s3";
 import { formatCurrency, formatDate, titleCase, toDateInputValue } from "@/lib/format";
@@ -196,6 +197,7 @@ function TransactionGroupCard({
 
 export default async function VendorDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "vendors", "view");
 
   const vendor = await queryOne<VendorRow>(
     `SELECT id, display_name, company_name, email, phone, billing_address, currency, is_active, opening_balance, created_at

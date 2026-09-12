@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { documentConfigs } from "@/lib/documents";
 import { getEntity } from "@/lib/entities";
 import { getOrCreateNumberSeries } from "@/lib/number-series";
@@ -13,6 +14,7 @@ export default async function DocumentFormPage({ entityKey, id }: { entityKey: s
   if (!cfg || !entity) notFound();
 
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, entityKey, "write");
 
   // Property Master Project/Unit options — only Invoices' bespoke block in DocumentForm.tsx
   // renders these (see cfg.key === "invoices" there), so skip the two extra queries for

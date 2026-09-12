@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, query, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { documentConfigs } from "@/lib/documents";
 import { createDocument } from "@/lib/documents-api";
 
@@ -35,6 +36,10 @@ interface ItemCostRow {
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const soAccessError = await moduleAccessErrorResponse(ctx, "sales-orders", "write");
+  if (soAccessError) return soAccessError;
+  const poAccessError = await moduleAccessErrorResponse(ctx, "purchase-orders", "write");
+  if (poAccessError) return poAccessError;
 
   let body: { vendor_id?: string };
   try {

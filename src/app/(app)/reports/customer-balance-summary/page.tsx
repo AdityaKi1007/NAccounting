@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { defaultAsOfDate } from "@/lib/report-dates";
@@ -21,6 +22,7 @@ interface Row {
 // just "who owes us how much, right now."
 export default async function CustomerBalanceSummaryPage({ searchParams }: { searchParams: { asOf?: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "reports", "view");
   const asOf = searchParams.asOf || defaultAsOfDate();
 
   const rows = await query<Row>(

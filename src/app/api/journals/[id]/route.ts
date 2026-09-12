@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, query, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { syncJournalReversal } from "@/lib/journal-reversals";
 
 interface Body {
@@ -28,6 +29,8 @@ interface Body {
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "manual-journals", "view");
+  if (accessError) return accessError;
 
   const header = await queryOne(`SELECT * FROM manual_journals WHERE organization_id = $1 AND id = $2`, [
     ctx.orgId,
@@ -42,6 +45,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "manual-journals", "write");
+  if (accessError) return accessError;
 
   const body: Body = await req.json().catch(() => ({ header: {}, lines: [] }));
   const lines = (body.lines ?? []).filter((l) => l.account_id && (Number(l.debit) > 0 || Number(l.credit) > 0));
@@ -114,6 +119,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "manual-journals", "write");
+  if (accessError) return accessError;
   await pool.query(`DELETE FROM manual_journals WHERE organization_id = $1 AND id = $2`, [ctx.orgId, params.id]);
   return NextResponse.json({ ok: true });
 }

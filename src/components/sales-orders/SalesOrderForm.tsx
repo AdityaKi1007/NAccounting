@@ -30,6 +30,9 @@ interface Props {
   itemOptions: ItemOption[];
   paymentTermOptions: string[];
   defaultPaymentTerm: string;
+  /** Optional Property Master tags — same as invoices' own (see DocumentForm.tsx). */
+  projectOptions: Option[];
+  unitOptions: Option[];
   currency: string;
   initial?: {
     header: Record<string, unknown>;
@@ -57,11 +60,30 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// `pg` returns a `date`-typed column (order_date, shipment_date) as a JS `Date` object, not a
+// string, even though `initial.header` is typed `Record<string, unknown>`. The old code did
+// `String(initial?.header?.order_date ?? todayStr()).slice(0, 10)`, and `String(dateObject)`
+// produces something like "Sat Sep 12 2026 00:00:00 GMT+0000 (UTC)" — slicing the first 10
+// characters of THAT drops the year, yielding "Sat Sep 12", which Postgres then rejects on save
+// ("invalid input syntax for type date") the moment this form resubmits the date unchanged
+// (which it always does on edit). Same root cause already fixed in the generic DocumentForm.tsx
+// (see its own toDateInputValue) — SalesOrderForm is a separate bespoke component, so it needed
+// the same fix here. Handles a real `Date`, an ISO string, or nothing/"" and always returns a
+// clean `YYYY-MM-DD` (or "").
+function toDateInputValue(value: unknown): string {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
+}
+
 export default function SalesOrderForm({
   customerOptions,
   itemOptions,
   paymentTermOptions,
   defaultPaymentTerm,
+  projectOptions,
+  unitOptions,
   currency,
   initial,
   recordId,
@@ -77,11 +99,15 @@ export default function SalesOrderForm({
   // instead, exactly like the generic DocumentForm does for invoices/quotes/bills.
   const [number, setNumber] = useState<string>(String(initial?.header?.so_number ?? ""));
   const [referenceNumber, setReferenceNumber] = useState<string>(String(initial?.header?.reference_number ?? ""));
-  const [orderDate, setOrderDate] = useState<string>(String(initial?.header?.order_date ?? todayStr()).slice(0, 10));
-  const [shipmentDate, setShipmentDate] = useState<string>(String(initial?.header?.shipment_date ?? "").slice(0, 10));
+  const [orderDate, setOrderDate] = useState<string>(
+    initial?.header?.order_date ? toDateInputValue(initial.header.order_date) : todayStr(),
+  );
+  const [shipmentDate, setShipmentDate] = useState<string>(toDateInputValue(initial?.header?.shipment_date));
   const [paymentTerms, setPaymentTerms] = useState<string>(String(initial?.header?.payment_terms ?? defaultPaymentTerm));
   const [deliveryMethod, setDeliveryMethod] = useState<string>(String(initial?.header?.delivery_method ?? ""));
   const [salesperson, setSalesperson] = useState<string>(String(initial?.header?.salesperson ?? ""));
+  const [projectId, setProjectId] = useState<string>(String(initial?.header?.project_id ?? ""));
+  const [unitId, setUnitId] = useState<string>(String(initial?.header?.unit_id ?? ""));
   const [notes, setNotes] = useState<string>(String(initial?.header?.notes ?? ""));
   const [termsConditions, setTermsConditions] = useState<string>(String(initial?.header?.terms_conditions ?? ""));
   const [rows, setRows] = useState<LineRow[]>(() => {
@@ -142,6 +168,8 @@ export default function SalesOrderForm({
           payment_terms: paymentTerms || null,
           delivery_method: deliveryMethod || null,
           salesperson: salesperson || null,
+          project_id: projectId || null,
+          unit_id: unitId || null,
           status,
           notes,
           terms_conditions: termsConditions || null,
@@ -267,6 +295,11 @@ export default function SalesOrderForm({
             </datalist>
           </div>
           <div />
+        </div>
+
+        {/* Property Master tags — same fields/layout as Invoices' own Salesperson/Project/Unit
+            row (DocumentForm.tsx, cfg.key === "invoices"). */}
+        <div className="mt-4 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-3">
           <div>
             <label className="label">Salesperson</label>
             <input
@@ -278,7 +311,28 @@ export default function SalesOrderForm({
             />
             <datalist id="salespersons" />
           </div>
-          <div />
+          <div>
+            <label className="label">Project</label>
+            <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <option value="">Select Project</option>
+              {projectOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Unit</label>
+            <select className="input" value={unitId} onChange={(e) => setUnitId(e.target.value)}>
+              <option value="">Select Unit</option>
+              {unitOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 

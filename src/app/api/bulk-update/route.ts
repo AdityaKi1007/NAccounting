@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getEntity } from "@/lib/entities";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 
 const ALLOWED_ENTITIES = ["items", "customers", "vendors"];
 
 export async function POST(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const bulkUpdateAccessError = await moduleAccessErrorResponse(ctx, "bulk-update", "write");
+  if (bulkUpdateAccessError) return bulkUpdateAccessError;
 
   const body = await req.json().catch(() => ({}));
   const { entityKey, ids, field, value } = body as {
@@ -20,6 +23,10 @@ export async function POST(req: NextRequest) {
   if (!ALLOWED_ENTITIES.includes(entityKey)) {
     return NextResponse.json({ error: "Bulk update is not supported for this list." }, { status: 400 });
   }
+  // Bulk-updating a target list (e.g. Customers) still needs write access to that module
+  // itself — Bulk Update is a shortcut into the same data, not a way around its own gate.
+  const targetAccessError = await moduleAccessErrorResponse(ctx, entityKey, "write");
+  if (targetAccessError) return targetAccessError;
   const entity = getEntity(entityKey);
   const fieldDef = entity?.fields.find((f) => f.name === field);
   if (!entity || !fieldDef) {

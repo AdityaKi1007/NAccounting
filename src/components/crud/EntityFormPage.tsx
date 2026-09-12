@@ -1,6 +1,7 @@
 import { getEntity } from "@/lib/entities";
 import { getRow, loadRefOptions } from "@/lib/crud";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/crud/PageHeader";
 import EntityForm from "@/components/crud/EntityForm";
@@ -16,6 +17,7 @@ export default async function EntityFormPage({
   if (!entity) notFound();
 
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, entityKey, "write");
   const [refOptions, row] = await Promise.all([
     loadRefOptions(entity, ctx.orgId, ctx.memberships),
     id ? getRow(entityKey, ctx.orgId, id) : Promise.resolve(null),

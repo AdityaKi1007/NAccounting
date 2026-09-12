@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, Pencil } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import AttachmentsField from "@/components/attachments/AttachmentsField";
@@ -57,6 +58,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
  * as the Bill/Expense detail views. */
 export default async function VendorCreditDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "vendor-credits", "view");
 
   const credit = await queryOne<CreditRow>(
     `SELECT id, credit_note_number, vendor_id, credit_date, order_number, subject,

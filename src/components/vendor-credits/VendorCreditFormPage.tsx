@@ -2,12 +2,14 @@ import { notFound } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
 import { getOrCreateNumberSeries } from "@/lib/number-series";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import PageHeader from "@/components/crud/PageHeader";
 import VendorCreditForm, { type VendorCreditOption, type VendorCreditItemOption } from "@/components/vendor-credits/VendorCreditForm";
 
 /** Bespoke create/edit page for Vendor Credits — mirrors BillFormPage.tsx's shape exactly. */
 export default async function VendorCreditFormPage({ id }: { id?: string }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "vendor-credits", "write");
 
   const [vendorRows, accountRows, apAccountRows, itemRows, taxRateRows, customerRows, series, org] = await Promise.all([
     query<{ id: string; display_name: string }>(

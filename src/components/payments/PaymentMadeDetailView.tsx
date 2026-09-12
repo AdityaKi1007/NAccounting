@@ -44,6 +44,8 @@ export default function PaymentMadeDetailView({
   allocations,
   journalLines,
   currency,
+  project,
+  unit,
 }: {
   payment: PaymentData;
   vendorName: string;
@@ -53,6 +55,9 @@ export default function PaymentMadeDetailView({
   allocations: AllocationData[];
   journalLines: JournalLineData[];
   currency: string;
+  /** Optional Property Master tags — see payments_made.project_id/unit_id. */
+  project?: { id: string; name: string } | null;
+  unit?: { id: string; name: string } | null;
 }) {
   const printRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
@@ -162,6 +167,27 @@ export default function PaymentMadeDetailView({
                 </p>
               ))}
             </div>
+
+            {(project || unit) && (
+              <div className="mt-6 flex flex-wrap gap-6 border-t border-gray-100 pt-4 text-sm">
+                {project && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Project</p>
+                    <Link href={`/projects/${project.id}`} className="text-brand-600 hover:underline">
+                      {project.name}
+                    </Link>
+                  </div>
+                )}
+                {unit && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Unit</p>
+                    <Link href={`/inventory/${unit.id}`} className="text-brand-600 hover:underline">
+                      {unit.name}
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
 
             {unapplied > 0.005 && (
               <div className="mt-6 flex items-center justify-between border-t border-gray-100 pt-4">

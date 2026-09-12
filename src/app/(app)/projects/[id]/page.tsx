@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, Pencil, Building2 } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { formatDate } from "@/lib/format";
 
@@ -48,6 +49,7 @@ function Field({ label, value }: { label: string; value: string | null }) {
 
 export default async function ProjectDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "projects", "view");
 
   const project = await queryOne<ProjectRow>(
     `SELECT p.id, p.name, o.name AS organization_name, p.code, p.rera_project_name, p.status, p.plot_area,

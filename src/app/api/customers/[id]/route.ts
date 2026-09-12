@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, query, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { extractHeaderValues, type CustomerHeaderInput, type ContactPersonInput } from "@/lib/customers";
 import { syncOpeningBalanceJournal } from "@/lib/auto-journal";
 
@@ -12,6 +13,8 @@ interface Body {
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "customers", "view");
+  if (accessError) return accessError;
 
   const header = await queryOne(`SELECT * FROM customers WHERE organization_id = $1 AND id = $2`, [
     ctx.orgId,
@@ -29,6 +32,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "customers", "write");
+  if (accessError) return accessError;
 
   const body: Body = await req.json().catch(() => ({ header: {}, contacts: [] }));
   const displayName = (body.header?.display_name ?? "").toString().trim();
@@ -84,6 +89,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "customers", "write");
+  if (accessError) return accessError;
 
   const client = await pool.connect();
   try {

@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
-import { pool } from "@/lib/db";
+import { pool, queryOne } from "@/lib/db";
 import { hashApiKey } from "@/lib/api-keys";
 
 export async function getApiOrgContext() {
@@ -10,7 +10,27 @@ export async function getApiOrgContext() {
   if (memberships.length === 0) return null;
   const orgId = session.activeOrgId ?? memberships[0].organizationId;
   const active = memberships.find((m) => m.organizationId === orgId) ?? memberships[0];
-  return { userId: session.user.id, orgId: active.organizationId, role: active.role, memberships };
+  const isSuperAdmin = session.isSuperAdmin ?? false;
+
+  // Mirrors requireActiveContext's org-approval gate (see src/lib/session.ts) so a pending
+  // org can't be driven through the API even though its pages already redirect away —
+  // treated the same as "not authenticated for this org" (401) rather than a page redirect.
+  if (!isSuperAdmin) {
+    const org = await queryOne<{ approval_status: string }>(
+      `SELECT approval_status FROM organizations WHERE id = $1`,
+      [active.organizationId]
+    );
+    if (org && org.approval_status !== "approved") return null;
+  }
+
+  return {
+    userId: session.user.id,
+    orgId: active.organizationId,
+    role: active.role,
+    roleId: active.roleId,
+    memberships,
+    isSuperAdmin,
+  };
 }
 
 export function unauthorized() {

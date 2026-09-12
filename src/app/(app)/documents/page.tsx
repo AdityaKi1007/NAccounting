@@ -1,7 +1,12 @@
 import ComingSoon from "@/components/ComingSoon";
 import { FolderOpen } from "lucide-react";
+import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 
-export default function DocumentsPage() {
+export default async function DocumentsPage() {
+  const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "documents", "view");
+
   return (
     <ComingSoon
       title="Documents"

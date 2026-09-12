@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 
 // Feeds the "Open Bills" table in RecordPaymentMadeForm — the vendor-side mirror of
 // /api/customers/[id]/unpaid-invoices. Only bills that have actually been marked Open (a
@@ -9,6 +10,8 @@ import { getApiOrgContext, unauthorized } from "@/lib/api-context";
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "payments-made", "view");
+  if (accessError) return accessError;
 
   const rows = await query<{
     id: string;

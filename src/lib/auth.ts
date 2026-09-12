@@ -12,6 +12,9 @@ export interface Membership {
   // orgDisplayId in @/lib/format) — pg returns bigint columns as strings, so this stays a
   // string all the way through the JWT/session rather than round-tripping through Number.
   orgSeq: string;
+  // Custom role assigned via the per-org Roles feature (memberships.role_id) — null for the
+  // default owner/admin/staff behavior (see src/lib/module-access.ts for how this is used).
+  roleId: string | null;
 }
 
 interface UserRow {
@@ -69,8 +72,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           organization_name: string;
           role: string;
           org_seq: string;
+          role_id: string | null;
         }>(
-          `SELECT m.organization_id, o.name AS organization_name, m.role, o.org_seq
+          `SELECT m.organization_id, o.name AS organization_name, m.role, o.org_seq, m.role_id
            FROM memberships m
            JOIN organizations o ON o.id = m.organization_id
            WHERE m.user_id = $1
@@ -82,10 +86,20 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           organizationName: m.organization_name,
           role: m.role,
           orgSeq: m.org_seq,
+          roleId: m.role_id,
         }));
         if (!token.activeOrgId && memberships.length > 0) {
           token.activeOrgId = memberships[0].organization_id;
         }
+      }
+      // Platform-level flag, independent of org/membership — fetched once and cached in the
+      // token same as memberships above.
+      if (token.userId && token.isSuperAdmin === undefined) {
+        const userRow = await queryOne<{ is_super_admin: boolean }>(
+          `SELECT is_super_admin FROM users WHERE id = $1`,
+          [token.userId]
+        );
+        token.isSuperAdmin = userRow?.is_super_admin ?? false;
       }
       if (trigger === "update" && session?.activeOrgId) {
         const memberships = (token.memberships as Membership[]) ?? [];
@@ -101,6 +115,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
       session.memberships = (token.memberships as Membership[]) ?? [];
       session.activeOrgId = (token.activeOrgId as string) ?? null;
+      session.isSuperAdmin = (token.isSuperAdmin as boolean) ?? false;
       return session;
     },
   },

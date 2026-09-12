@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { createPaymentMade, type PaymentMadeBody } from "@/lib/payments-made-api";
 
 // A dedicated route rather than the generic /api/entities/payments-made one — same reasoning
@@ -10,6 +11,8 @@ import { createPaymentMade, type PaymentMadeBody } from "@/lib/payments-made-api
 export async function POST(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
+  const accessError = await moduleAccessErrorResponse(ctx, "payments-made", "write");
+  if (accessError) return accessError;
 
   const body: PaymentMadeBody = await req.json().catch(() => ({}) as PaymentMadeBody);
   const result = await createPaymentMade(ctx.orgId, body);

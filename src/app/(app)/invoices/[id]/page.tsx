@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireActiveContext } from "@/lib/session";
+import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { getOrgLogoDataUri } from "@/lib/s3";
 import InvoiceDetailView from "@/components/invoices/InvoiceDetailView";
@@ -75,6 +76,7 @@ interface JournalLineRow {
 
 export default async function InvoiceDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
+  await requireModuleAccess(ctx, "invoices", "view");
 
   const invoice = await queryOne<InvoiceRow>(
     `SELECT id, invoice_number, customer_id, invoice_date, due_date, status, subtotal, tax_total, total, balance_due, notes,

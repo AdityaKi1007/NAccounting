@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { Search, Bell, Settings, ChevronDown, Plus, LogOut, Building2, Check, X, Settings2 } from "lucide-react";
+import { Search, Bell, Settings, ChevronDown, Plus, LogOut, Building2, Check, X, Settings2, ShieldCheck } from "lucide-react";
 import { orgDisplayId } from "@/lib/format";
 
 export default function Topbar({ orgName }: { orgName: string }) {
@@ -144,6 +144,16 @@ export default function Topbar({ orgName }: { orgName: string }) {
               <p className="truncate text-sm font-medium text-ink-800">{session?.user?.name}</p>
               <p className="truncate text-xs text-gray-500">{session?.user?.email}</p>
             </div>
+            {session?.isSuperAdmin && (
+              <Link
+                href="/super-admin"
+                onClick={() => setUserMenuOpen(false)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink-700 hover:bg-gray-50"
+              >
+                <ShieldCheck size={15} />
+                Super Admin
+              </Link>
+            )}
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
