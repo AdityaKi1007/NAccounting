@@ -1,38 +1,34 @@
-import Link from "next/link";
-import { Star } from "lucide-react";
+import ReportsTable, { type ReportRow } from "@/components/reports/ReportsTable";
 
-interface ReportLink {
-  label: string;
-  href: string;
-}
+// Flat catalog matching the reference screenshot's layout (Report Name / Category / Type /
+// Last Viewed) rather than the previous grouped-card layout. Category order follows the
+// screenshot: Business Overview and Sales predate this pass and are kept as-is, then
+// Receivables / Payments Received / Payables / Accountant / Activity in the order shown.
+const REPORT_ROWS: ReportRow[] = [
+  { label: "Profit and Loss", href: "/reports/profit-and-loss", category: "Business Overview" },
+  { label: "Cash Flow Statement", href: "/reports/cash-flow", category: "Business Overview" },
+  { label: "Balance Sheet", href: "/reports/balance-sheet", category: "Business Overview" },
 
-interface ReportGroup {
-  label: string;
-  reports: ReportLink[];
-}
+  { label: "Sales by Customer", href: "/reports/sales-by-customer", category: "Sales" },
+  { label: "Sales by Item", href: "/reports/sales-by-item", category: "Sales" },
+  { label: "Sales by Salesperson", href: "/reports/sales-by-salesperson", category: "Sales" },
+  { label: "Sales Summary", href: "/reports/sales-summary", category: "Sales" },
 
-const REPORT_GROUPS: ReportGroup[] = [
-  {
-    label: "Business Overview",
-    reports: [
-      { label: "Profit and Loss", href: "/reports/profit-and-loss" },
-      { label: "Cash Flow Statement", href: "/reports/cash-flow" },
-      { label: "Balance Sheet", href: "/reports/balance-sheet" },
-    ],
-  },
-  {
-    label: "Sales",
-    reports: [
-      { label: "Sales by Customer", href: "/reports/sales-by-customer" },
-      { label: "Sales by Item", href: "/reports/sales-by-item" },
-      { label: "Sales by Salesperson", href: "/reports/sales-by-salesperson" },
-      { label: "Sales Summary", href: "/reports/sales-summary" },
-    ],
-  },
-  {
-    label: "Receivables",
-    reports: [{ label: "AR Aging Summary", href: "/reports/ar-aging-summary" }],
-  },
+  { label: "Invoice Details", href: "/reports/invoice-details", category: "Receivables" },
+  { label: "Customer Balance Summary", href: "/reports/customer-balance-summary", category: "Receivables" },
+  { label: "Receivable Summary", href: "/reports/receivable-summary", category: "Receivables" },
+  { label: "AR Aging Summary", href: "/reports/ar-aging-summary", category: "Receivables" },
+
+  { label: "Payments Received", href: "/reports/payments-received", category: "Payments Received" },
+  { label: "Refund History", href: "/reports/refund-history", category: "Payments Received", placeholder: true },
+
+  { label: "Payments Made", href: "/reports/payments-made", category: "Payables" },
+  { label: "Refund History", href: "/reports/refund-history", category: "Payables", placeholder: true },
+
+  { label: "General Ledger", href: "/reports/general-ledger", category: "Accountant" },
+  { label: "Trial Balance", href: "/reports/trial-balance", category: "Accountant" },
+
+  { label: "Activity Logs & Audit Trail", href: "/reports/activity-logs", category: "Activity", placeholder: true },
 ];
 
 export default function ReportsPage() {
@@ -44,25 +40,7 @@ export default function ReportsPage() {
       </div>
 
       <div className="p-6">
-        <div className="space-y-6">
-          {REPORT_GROUPS.map((group) => (
-            <div key={group.label} className="card overflow-hidden">
-              <div className="border-b border-gray-100 bg-gray-50 px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                {group.label}
-              </div>
-              <div className="divide-y divide-gray-100">
-                {group.reports.map((report) => (
-                  <div key={report.href} className="flex items-center gap-3 px-5 py-3">
-                    <Star size={15} className="shrink-0 text-gray-300" />
-                    <Link href={report.href} className="text-sm font-medium text-brand-600 hover:underline">
-                      {report.label}
-                    </Link>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+        <ReportsTable rows={REPORT_ROWS} />
       </div>
     </div>
   );
