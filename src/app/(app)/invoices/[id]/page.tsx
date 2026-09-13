@@ -20,6 +20,7 @@ interface InvoiceRow {
   sales_order_id: string | null;
   project_id: string | null;
   unit_id: string | null;
+  crm_inv_no: string | null;
 }
 
 interface SalesOrderRow {
@@ -80,7 +81,7 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
 
   const invoice = await queryOne<InvoiceRow>(
     `SELECT id, invoice_number, customer_id, invoice_date, due_date, status, subtotal, tax_total, total, balance_due, notes,
-            sales_order_id, project_id, unit_id
+            sales_order_id, project_id, unit_id, crm_inv_no
      FROM invoices WHERE id = $1 AND organization_id = $2`,
     [params.id, ctx.orgId]
   );
@@ -149,6 +150,7 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
         total: Number(invoice.total),
         balanceDue: Number(invoice.balance_due),
         notes: invoice.notes,
+        crmInvNo: invoice.crm_inv_no,
       }}
       customer={
         customer

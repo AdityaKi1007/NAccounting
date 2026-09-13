@@ -110,6 +110,7 @@ export default function SalesOrderForm({
   const [unitId, setUnitId] = useState<string>(String(initial?.header?.unit_id ?? ""));
   const [notes, setNotes] = useState<string>(String(initial?.header?.notes ?? ""));
   const [termsConditions, setTermsConditions] = useState<string>(String(initial?.header?.terms_conditions ?? ""));
+  const [crmSoNo, setCrmSoNo] = useState<string>(String(initial?.header?.crm_so_no ?? ""));
   const [rows, setRows] = useState<LineRow[]>(() => {
     if (initial?.lines?.length) {
       return initial.lines.map((l) => {
@@ -173,6 +174,7 @@ export default function SalesOrderForm({
           status,
           notes,
           terms_conditions: termsConditions || null,
+          crm_so_no: crmSoNo || null,
         },
         lines: validLines.map((r) => ({
           item_id: r.item_id || null,
@@ -247,7 +249,15 @@ export default function SalesOrderForm({
           <label className="label">Reference#</label>
           <input className="input" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} />
         </div>
-        <div />
+        <div>
+          <label className="label">CRM SO No</label>
+          <input
+            className="input"
+            value={crmSoNo}
+            onChange={(e) => setCrmSoNo(e.target.value)}
+            placeholder="Reference number from your CRM"
+          />
+        </div>
 
         <div>
           <label className="label">

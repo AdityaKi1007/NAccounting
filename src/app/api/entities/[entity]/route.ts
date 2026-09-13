@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEntity } from "@/lib/entities";
-import { listRows, createRow, resolveOrgIdForWrite } from "@/lib/crud";
+import { listRows, createRow, resolveOrgIdForWrite, validateRefFields } from "@/lib/crud";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
 import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { pool } from "@/lib/db";
@@ -11,6 +11,7 @@ import {
   syncVendorCreditJournal,
   syncOpeningBalanceJournal,
   recomputeBillBalance,
+  getOrCreateBankGLAccount,
 } from "@/lib/auto-journal";
 
 export async function GET(_req: NextRequest, { params }: { params: { entity: string } }) {
@@ -54,7 +55,15 @@ export async function POST(req: NextRequest, { params }: { params: { entity: str
     return NextResponse.json({ error: "You're not a member of that organization." }, { status: 400 });
   }
 
-  const row = await createRow(params.entity, resolvedOrg.orgId, body);
+  // Every account_id/customer_id/vendor_id/project_id/... this entity's fields reference must
+  // actually belong to that same organization — see validateRefFields' own comment in crud.ts
+  // for why the row's own organization_id being correct isn't enough on its own.
+  const refCheck = await validateRefFields(params.entity, resolvedOrg.orgId, body);
+  if (!refCheck.valid) {
+    return NextResponse.json({ error: refCheck.error }, { status: 400 });
+  }
+
+  const row = await createRow(params.entity, resolvedOrg.orgId, body, { userId: ctx.userId });
 
   // The dedicated /api/payments-received route (the Record Payment form) is the normal path
   // for creating a payment and already syncs its own journal — this only covers a payment
@@ -109,6 +118,19 @@ export async function POST(req: NextRequest, { params }: { params: { entity: str
       const client = await pool.connect();
       try {
         await syncOpeningBalanceJournal(client, ctx.orgId);
+      } finally {
+        client.release();
+      }
+    } else if (params.entity === "bank-accounts") {
+      // Ensures every new bank/credit-card account has a real, linked Chart of Accounts entry
+      // from the moment it's created — not just lazily the first time a payment posts against
+      // it (see getOrCreateBankGLAccount's own comment for why this matters: the Banking list
+      // page's "Amount in Books" column, and every Deposit To/Paid Through picker, both depend
+      // on this link existing). A no-op if the create body already supplied gl_account_id
+      // (the user explicitly linked an existing Chart of Accounts entry instead).
+      const client = await pool.connect();
+      try {
+        await getOrCreateBankGLAccount(client, ctx.orgId, rowId);
       } finally {
         client.release();
       }

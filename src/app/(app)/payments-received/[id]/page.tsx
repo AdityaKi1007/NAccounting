@@ -19,6 +19,7 @@ interface PaymentRow {
   notes: string | null;
   project_id: string | null;
   unit_id: string | null;
+  crm_receipt_no: string | null;
 }
 
 interface ProjectRow {
@@ -88,7 +89,7 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
 
   const payment = await queryOne<PaymentRow>(
     `SELECT id, payment_number, customer_id, payment_date, amount, bank_charges, payment_mode,
-            bank_account_id, reference_number, status, notes, project_id, unit_id
+            bank_account_id, reference_number, status, notes, project_id, unit_id, crm_receipt_no
      FROM payments_received WHERE id = $1 AND organization_id = $2`,
     [params.id, ctx.orgId]
   );
@@ -171,6 +172,7 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
         referenceNumber: payment.reference_number,
         status: payment.status,
         notes: payment.notes,
+        crmReceiptNo: payment.crm_receipt_no,
       }}
       customerName={customer ? (customer.company_name ? `${customer.display_name} (${customer.company_name})` : customer.display_name) : "-"}
       customerEmail={customer?.email ?? null}

@@ -76,7 +76,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       rate: Number(l.quantity) > 0 ? Number(l.amount) / Number(l.quantity) : Number(l.rate),
     })),
     taxPercent: 0,
-  });
+  }, { userId: ctx.userId });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
 
   await pool.query(

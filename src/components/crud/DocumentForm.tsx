@@ -111,6 +111,9 @@ export default function DocumentForm({
   // Invoices-only, same gating as salesperson above — optional Property Master tags.
   const [projectId, setProjectId] = useState<string>(String(initial?.header?.project_id ?? ""));
   const [unitId, setUnitId] = useState<string>(String(initial?.header?.unit_id ?? ""));
+  // Invoices-only, same gating as salesperson above — external CRM system's own reference
+  // number for this invoice (migrations/1776000000000_crm_reference_numbers.js).
+  const [crmInvNo, setCrmInvNo] = useState<string>(String(initial?.header?.crm_inv_no ?? ""));
   const [taxPercent, setTaxPercent] = useState<number>(initial?.taxPercent ?? 5);
   const [rows, setRows] = useState<LineRow[]>(() => {
     if (initial?.lines?.length) {
@@ -185,7 +188,12 @@ export default function DocumentForm({
           status,
           notes,
           ...(cfg.key === "invoices"
-            ? { salesperson: salesperson || null, project_id: projectId || null, unit_id: unitId || null }
+            ? {
+                salesperson: salesperson || null,
+                project_id: projectId || null,
+                unit_id: unitId || null,
+                crm_inv_no: crmInvNo || null,
+              }
             : {}),
         },
         lines: validLines.map((r) => ({
@@ -401,7 +409,7 @@ export default function DocumentForm({
       </div>
 
       {cfg.key === "invoices" && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
           <div>
             <label className="label">Salesperson</label>
             <input
@@ -434,6 +442,15 @@ export default function DocumentForm({
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="label">CRM Inv No</label>
+            <input
+              className="input"
+              value={crmInvNo}
+              onChange={(e) => setCrmInvNo(e.target.value)}
+              placeholder="Reference number from your CRM"
+            />
           </div>
         </div>
       )}

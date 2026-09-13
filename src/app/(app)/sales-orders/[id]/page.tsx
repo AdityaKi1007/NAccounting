@@ -22,6 +22,7 @@ interface SalesOrderRow {
   converted_purchase_order_id: string | null;
   project_id: string | null;
   unit_id: string | null;
+  crm_so_no: string | null;
 }
 
 interface ProjectRow {
@@ -73,7 +74,7 @@ export default async function SalesOrderDetailPage({ params }: { params: { id: s
   const so = await queryOne<SalesOrderRow>(
     `SELECT id, so_number, customer_id, order_date, shipment_date, reference_number, status,
             subtotal, tax_total, total, notes, terms_conditions, converted_invoice_id, converted_purchase_order_id,
-            project_id, unit_id
+            project_id, unit_id, crm_so_no
      FROM sales_orders WHERE id = $1 AND organization_id = $2`,
     [params.id, ctx.orgId]
   );
@@ -128,6 +129,7 @@ export default async function SalesOrderDetailPage({ params }: { params: { id: s
         termsConditions: so.terms_conditions,
         convertedInvoiceId: so.converted_invoice_id,
         convertedPurchaseOrderId: so.converted_purchase_order_id,
+        crmSoNo: so.crm_so_no,
       }}
       customer={
         customer

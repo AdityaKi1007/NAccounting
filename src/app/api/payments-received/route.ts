@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   if (accessError) return accessError;
 
   const body: ReceiptBody = await req.json().catch(() => ({}) as ReceiptBody);
-  const result = await createReceipt(ctx.orgId, body);
+  const result = await createReceipt(ctx.orgId, body, { userId: ctx.userId });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
   return NextResponse.json({ id: result.id }, { status: 201 });
 }

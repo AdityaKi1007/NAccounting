@@ -50,6 +50,8 @@ export const FIELD_CATALOG: Catalog = {
       { name: "sales_order_id", label: "Sales Order", sample: null },
       { name: "project_id", label: "Project", sample: null },
       { name: "unit_id", label: "Unit", sample: null },
+      { name: "crm_inv_no", label: "CRM Inv No", sample: "CRM-INV-3301" },
+      { name: "legal_entity_id", label: "Legal Entity", sample: null },
     ],
     update: [
       { name: "customer_id", label: "Customer", core: true, sample: "05dfee68-f504-4694-83b0-471c251676ab" },
@@ -62,6 +64,8 @@ export const FIELD_CATALOG: Catalog = {
       { name: "sales_order_id", label: "Sales Order", sample: null },
       { name: "project_id", label: "Project", sample: null },
       { name: "unit_id", label: "Unit", sample: null },
+      { name: "crm_inv_no", label: "CRM Inv No", sample: "CRM-INV-3301" },
+      { name: "legal_entity_id", label: "Legal Entity", sample: null },
     ],
   },
   "sales-orders": {
@@ -79,6 +83,8 @@ export const FIELD_CATALOG: Catalog = {
       { name: "terms_conditions", label: "Terms & Conditions", sample: "Standard terms apply" },
       { name: "project_id", label: "Project", sample: null },
       { name: "unit_id", label: "Unit", sample: null },
+      { name: "crm_so_no", label: "CRM SO No", sample: "CRM-SO-771" },
+      { name: "legal_entity_id", label: "Legal Entity", sample: null },
     ],
     update: [
       { name: "customer_id", label: "Customer", core: true, sample: "05dfee68-f504-4694-83b0-471c251676ab" },
@@ -94,6 +100,8 @@ export const FIELD_CATALOG: Catalog = {
       { name: "terms_conditions", label: "Terms & Conditions", sample: "Standard terms apply" },
       { name: "project_id", label: "Project", sample: null },
       { name: "unit_id", label: "Unit", sample: null },
+      { name: "crm_so_no", label: "CRM SO No", sample: "CRM-SO-771" },
+      { name: "legal_entity_id", label: "Legal Entity", sample: null },
     ],
   },
   receipts: {
@@ -110,12 +118,16 @@ export const FIELD_CATALOG: Catalog = {
       { name: "status", label: "Status", sample: "paid" },
       { name: "project_id", label: "Project", sample: null },
       { name: "unit_id", label: "Unit", sample: null },
+      { name: "crm_receipt_no", label: "CRM Receipt No", sample: "CRM-R-5512" },
+      { name: "legal_entity_id", label: "Legal Entity", sample: null },
     ],
     update: [
       { name: "payment_date", label: "Payment Date", sample: "2026-09-12" },
       { name: "reference_number", label: "Reference #", sample: "TXN-88213-corrected" },
       { name: "notes", label: "Notes", sample: "Corrected ref #" },
       { name: "payment_mode", label: "Payment Mode", sample: "bank_transfer" },
+      { name: "crm_receipt_no", label: "CRM Receipt No", sample: "CRM-R-5512-corrected" },
+      { name: "legal_entity_id", label: "Legal Entity", sample: null },
     ],
   },
   customers: {
@@ -139,6 +151,7 @@ export const FIELD_CATALOG: Catalog = {
       { name: "billing_address", label: "Billing Address", sample: "123 Main St" },
       { name: "shipping_address", label: "Shipping Address", sample: null },
       { name: "remarks", label: "Remarks", sample: null },
+      { name: "crm_customer_no", label: "CRM Customer No", sample: "CRM-C-2210" },
       { name: "is_active", label: "Active", sample: true },
     ],
     update: [
@@ -161,6 +174,7 @@ export const FIELD_CATALOG: Catalog = {
       { name: "billing_address", label: "Billing Address", sample: "123 Main St" },
       { name: "shipping_address", label: "Shipping Address", sample: null },
       { name: "remarks", label: "Remarks", sample: null },
+      { name: "crm_customer_no", label: "CRM Customer No", sample: "CRM-C-2210" },
       { name: "is_active", label: "Active", sample: true },
     ],
   },
@@ -173,6 +187,7 @@ export const FIELD_CATALOG: Catalog = {
       { name: "billing_address", label: "Billing Address", sample: "456 Supplier Ave" },
       { name: "currency", label: "Currency", sample: "AED" },
       { name: "opening_balance", label: "Opening Balance", sample: 0 },
+      { name: "crm_vendor_no", label: "CRM Vendor No", sample: "CRM-V-1042" },
       { name: "is_active", label: "Active", sample: true },
     ],
     update: [
@@ -183,16 +198,21 @@ export const FIELD_CATALOG: Catalog = {
       { name: "billing_address", label: "Billing Address", sample: "456 Supplier Ave" },
       { name: "currency", label: "Currency", sample: "AED" },
       { name: "opening_balance", label: "Opening Balance", sample: 0 },
+      { name: "crm_vendor_no", label: "CRM Vendor No", sample: "CRM-V-1042" },
       { name: "is_active", label: "Active", sample: true },
     ],
   },
   "credit-notes": {
+    // No "update" entry — credit_notes has no v1 update/PATCH endpoint at all (only create +
+    // void — see /api/v1/credit-notes/[id]/route.ts), so there is nothing to configure there,
+    // same as for every other credit-memo field.
     create: [
       { name: "invoice_id", label: "Invoice", core: true, sample: "392da528-fea4-4bfb-85e2-1d46029c361c" },
       { name: "note_date", label: "Date", sample: "2026-09-12" },
       { name: "reference_number", label: "Reference #", sample: "RMA-4471" },
       { name: "reason", label: "Reason", sample: "Damaged goods" },
       { name: "taxPercent", label: "Tax %", sample: 0 },
+      { name: "legal_entity_id", label: "Legal Entity", sample: null },
     ],
   },
 };

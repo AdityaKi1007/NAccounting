@@ -2,6 +2,8 @@ import type { PoolClient } from "pg";
 import { pool, query, queryOne } from "@/lib/db";
 import { claimNextNumber } from "@/lib/number-series";
 import { syncPaymentJournal } from "@/lib/auto-journal";
+import { idBelongsToOrg } from "@/lib/tenant-guard";
+import { recordAuditLog, type AuditActor } from "@/lib/audit-log";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -26,6 +28,14 @@ export interface ReceiptBody {
   /** Optional Property Master tags — see payments_received.project_id/unit_id. */
   project_id?: string | null;
   unit_id?: string | null;
+  /** External CRM system's own reference number for this receipt
+   * (migrations/1776000000000_crm_reference_numbers.js). */
+  crm_receipt_no?: string | null;
+  /** API-only (see migrations/1779000000000_legal_entity_on_documents.js) — there is no field
+   * for this anywhere in the Record Payment form; it can only be set/changed through
+   * /api/v1/receipts' own create/update. Unlike project_id/unit_id, it's accepted on BOTH
+   * create and update (see updateReceiptMeta's Pick<> type below). */
+  legal_entity_id?: string | null;
 }
 
 export interface ReceiptActionResult {
@@ -35,7 +45,7 @@ export interface ReceiptActionResult {
   status?: number;
 }
 
-export async function createReceipt(orgId: string, body: ReceiptBody): Promise<ReceiptActionResult> {
+export async function createReceipt(orgId: string, body: ReceiptBody, actor: AuditActor = {}): Promise<ReceiptActionResult> {
   if (!body.customer_id) {
     return { ok: false, error: "Customer is required.", status: 400 };
   }
@@ -59,6 +69,16 @@ export async function createReceipt(orgId: string, body: ReceiptBody): Promise<R
   );
   if (!bankAccount) return { ok: false, error: "Select a valid Deposit To account.", status: 400 };
 
+  if (body.project_id && !(await idBelongsToOrg("projects", body.project_id, orgId))) {
+    return { ok: false, error: "Select a valid Project.", status: 400 };
+  }
+  if (body.unit_id && !(await idBelongsToOrg("inventory", body.unit_id, orgId))) {
+    return { ok: false, error: "Select a valid Unit.", status: 400 };
+  }
+  if (body.legal_entity_id && !(await idBelongsToOrg("legal_entities", body.legal_entity_id, orgId))) {
+    return { ok: false, error: "Select a valid Legal Entity.", status: 400 };
+  }
+
   const status = body.status === "draft" ? "draft" : "paid";
   const allocations = (body.allocations ?? []).filter(
     (a) => a.invoice_id && Number.isFinite(Number(a.amount)) && Number(a.amount) > 0
@@ -77,8 +97,8 @@ export async function createReceipt(orgId: string, body: ReceiptBody): Promise<R
 
     const paymentResult = await client.query(
       `INSERT INTO payments_received
-         (organization_id, payment_number, customer_id, payment_date, amount, bank_charges, payment_mode, bank_account_id, reference_number, notes, status, project_id, unit_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         (organization_id, payment_number, customer_id, payment_date, amount, bank_charges, payment_mode, bank_account_id, reference_number, notes, status, project_id, unit_id, crm_receipt_no, legal_entity_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING id`,
       [
         orgId,
@@ -94,6 +114,8 @@ export async function createReceipt(orgId: string, body: ReceiptBody): Promise<R
         status,
         body.project_id || null,
         body.unit_id || null,
+        body.crm_receipt_no || null,
+        body.legal_entity_id || null,
       ]
     );
     const paymentId = paymentResult.rows[0].id as string;
@@ -130,7 +152,23 @@ export async function createReceipt(orgId: string, body: ReceiptBody): Promise<R
 
     await syncPaymentJournal(client, orgId, paymentId);
 
+    const auditNewRow = (await client.query(`SELECT * FROM payments_received WHERE id = $1`, [paymentId])).rows[0] as
+      | Record<string, unknown>
+      | undefined;
+
     await client.query("COMMIT");
+
+    await recordAuditLog({
+      orgId,
+      actor,
+      action: "create",
+      module: "payments-received",
+      entityId: paymentId,
+      entityLabel: auditNewRow ? String(auditNewRow.payment_number ?? "") : null,
+      oldData: null,
+      newData: auditNewRow ?? null,
+    });
+
     return { ok: true, id: paymentId };
   } catch (err) {
     await client.query("ROLLBACK");
@@ -358,8 +396,16 @@ export async function getReceipt(orgId: string, id: string) {
 export async function updateReceiptMeta(
   orgId: string,
   id: string,
-  body: Pick<ReceiptBody, "payment_date" | "reference_number" | "notes" | "payment_mode">
+  body: Pick<
+    ReceiptBody,
+    "payment_date" | "reference_number" | "notes" | "payment_mode" | "crm_receipt_no" | "legal_entity_id"
+  >,
+  actor: AuditActor = {}
 ): Promise<ReceiptActionResult> {
+  if (body.legal_entity_id && !(await idBelongsToOrg("legal_entities", body.legal_entity_id, orgId))) {
+    return { ok: false, error: "Select a valid Legal Entity.", status: 400 };
+  }
+
   const fields: string[] = [];
   const values: unknown[] = [];
   let i = 3;
@@ -379,12 +425,38 @@ export async function updateReceiptMeta(
     fields.push(`payment_mode = $${i++}`);
     values.push(body.payment_mode);
   }
+  if (body.crm_receipt_no !== undefined) {
+    fields.push(`crm_receipt_no = $${i++}`);
+    values.push(body.crm_receipt_no || null);
+  }
+  if (body.legal_entity_id !== undefined) {
+    fields.push(`legal_entity_id = $${i++}`);
+    values.push(body.legal_entity_id || null);
+  }
   if (fields.length === 0) return { ok: false, error: "Nothing to update.", status: 400 };
 
+  const before = await queryOne<Record<string, unknown>>(`SELECT * FROM payments_received WHERE organization_id = $1 AND id = $2`, [
+    orgId,
+    id,
+  ]);
+
   const result = await pool.query(
-    `UPDATE payments_received SET ${fields.join(", ")} WHERE organization_id = $1 AND id = $2 RETURNING id`,
+    `UPDATE payments_received SET ${fields.join(", ")} WHERE organization_id = $1 AND id = $2 RETURNING *`,
     [orgId, id, ...values]
   );
   if (result.rowCount === 0) return { ok: false, error: "Not found", status: 404 };
+
+  const after = result.rows[0] as Record<string, unknown>;
+  await recordAuditLog({
+    orgId,
+    actor,
+    action: "update",
+    module: "payments-received",
+    entityId: id,
+    entityLabel: String(after.payment_number ?? ""),
+    oldData: before,
+    newData: after,
+  });
+
   return { ok: true, id };
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEntity } from "@/lib/entities";
-import { getRow, updateRow, deleteRow, resolveOrgIdForWrite } from "@/lib/crud";
+import { getRow, updateRow, deleteRow, resolveOrgIdForWrite, validateRefFields } from "@/lib/crud";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
 import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { pool } from "@/lib/db";
@@ -11,6 +11,7 @@ import {
   syncVendorCreditJournal,
   syncOpeningBalanceJournal,
   recomputeBillBalance,
+  getOrCreateBankGLAccount,
 } from "@/lib/auto-journal";
 import { reverseReceiptApplication } from "@/lib/receipts-api";
 import { billsAllocatedByPayment } from "@/lib/payments-made-api";
@@ -63,7 +64,13 @@ export async function PATCH(
     return NextResponse.json({ error: "You're not a member of that organization." }, { status: 400 });
   }
 
-  const row = await updateRow(params.entity, ctx.orgId, params.id, body);
+  // Same reasoning as the POST route's own check — see validateRefFields' comment in crud.ts.
+  const refCheck = await validateRefFields(params.entity, ctx.orgId, body);
+  if (!refCheck.valid) {
+    return NextResponse.json({ error: refCheck.error }, { status: 400 });
+  }
+
+  const row = await updateRow(params.entity, ctx.orgId, params.id, body, { userId: ctx.userId });
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Covers editing an existing payment through the generic edit form (status, amount, bank
@@ -120,6 +127,16 @@ export async function PATCH(
     } finally {
       client.release();
     }
+  } else if (params.entity === "bank-accounts") {
+    // Same reasoning as the POST route's bank-accounts branch — a no-op if this edit already
+    // set gl_account_id (linked to an existing account, or already auto-created earlier),
+    // otherwise creates and links a fresh one now rather than leaving it unlinked.
+    const client = await pool.connect();
+    try {
+      await getOrCreateBankGLAccount(client, ctx.orgId, params.id);
+    } finally {
+      client.release();
+    }
   }
 
   return NextResponse.json({ row });
@@ -172,7 +189,7 @@ export async function DELETE(
     }
   }
 
-  await deleteRow(params.entity, ctx.orgId, params.id);
+  await deleteRow(params.entity, ctx.orgId, params.id, { userId: ctx.userId });
 
   if (billIds.length > 0) {
     const client = await pool.connect();

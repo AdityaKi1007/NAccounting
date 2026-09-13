@@ -74,6 +74,7 @@ export default function RecordPaymentForm({
   const [notes, setNotes] = useState("");
   const [projectId, setProjectId] = useState("");
   const [unitId, setUnitId] = useState("");
+  const [crmReceiptNo, setCrmReceiptNo] = useState("");
 
   const [invoices, setInvoices] = useState<UnpaidInvoice[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
@@ -178,6 +179,7 @@ export default function RecordPaymentForm({
         notes: notes || null,
         project_id: projectId || null,
         unit_id: unitId || null,
+        crm_receipt_no: crmReceiptNo || null,
         status,
         allocations: invoices
           .filter((inv) => (allocations[inv.id] ?? 0) > 0)
@@ -315,6 +317,15 @@ export default function RecordPaymentForm({
               </option>
             ))}
           </select>
+
+          <label className="label pt-2">CRM Receipt No</label>
+          <input
+            type="text"
+            className="input max-w-sm"
+            value={crmReceiptNo}
+            onChange={(e) => setCrmReceiptNo(e.target.value)}
+            placeholder="Reference number from your CRM"
+          />
         </div>
 
         <div className="border-t border-gray-100 pt-5">

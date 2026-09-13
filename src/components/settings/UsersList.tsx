@@ -9,25 +9,17 @@ import { formatDate } from "@/lib/format";
 interface UserRow {
   membership_id: string;
   role: string;
-  role_id: string | null;
   joined_at: string;
   user_id: string;
   name: string;
   email: string;
 }
 
-interface RoleOption {
-  id: string;
-  name: string;
-}
-
 export default function UsersList({
   users,
-  roles,
   canManage,
 }: {
   users: UserRow[];
-  roles: RoleOption[];
   canManage: boolean;
 }) {
   const router = useRouter();
@@ -35,18 +27,15 @@ export default function UsersList({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("staff");
-  const [roleId, setRoleId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
-  const [savingRoleFor, setSavingRoleFor] = useState<string | null>(null);
 
   function openModal() {
     setName("");
     setEmail("");
     setRole("staff");
-    setRoleId("");
     setError(null);
     setTempPassword(null);
     setModalOpen(true);
@@ -58,7 +47,7 @@ export default function UsersList({
     const res = await fetch("/api/settings/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, role, roleId: role === "staff" ? roleId || null : null }),
+      body: JSON.stringify({ name, email, role }),
     });
     setSaving(false);
     if (!res.ok) {
@@ -81,17 +70,6 @@ export default function UsersList({
     router.refresh();
   }
 
-  async function onChangeRoleId(membershipId: string, newRoleId: string) {
-    setSavingRoleFor(membershipId);
-    await fetch(`/api/settings/users/${membershipId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roleId: newRoleId || null }),
-    });
-    setSavingRoleFor(null);
-    router.refresh();
-  }
-
   return (
     <div>
       {canManage && (
@@ -108,7 +86,6 @@ export default function UsersList({
               <th className="px-4 py-2.5">Name</th>
               <th className="px-4 py-2.5">Email</th>
               <th className="px-4 py-2.5">Role</th>
-              <th className="px-4 py-2.5">Custom Role</th>
               <th className="px-4 py-2.5">Joined</th>
               {canManage && <th className="px-4 py-2.5 text-right">Actions</th>}
             </tr>
@@ -119,25 +96,6 @@ export default function UsersList({
                 <td className="px-4 py-2.5 text-ink-800">{u.name}</td>
                 <td className="px-4 py-2.5 text-ink-700">{u.email}</td>
                 <td className="px-4 py-2.5 capitalize text-ink-700">{u.role}</td>
-                <td className="px-4 py-2.5 text-ink-700">
-                  {u.role === "staff" && canManage ? (
-                    <select
-                      className="input py-1 text-xs"
-                      value={u.role_id ?? ""}
-                      disabled={savingRoleFor === u.membership_id}
-                      onChange={(e) => onChangeRoleId(u.membership_id, e.target.value)}
-                    >
-                      <option value="">Unrestricted (default)</option>
-                      {roles.map((r) => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
-                      ))}
-                    </select>
-                  ) : u.role === "staff" ? (
-                    roles.find((r) => r.id === u.role_id)?.name ?? "Unrestricted"
-                  ) : (
-                    <span className="text-xs text-gray-400">—</span>
-                  )}
-                </td>
                 <td className="px-4 py-2.5 text-ink-700">{formatDate(u.joined_at)}</td>
                 {canManage && (
                   <td className="px-4 py-2.5 text-right">
@@ -205,21 +163,6 @@ export default function UsersList({
                 <option value="staff">Staff</option>
               </select>
             </div>
-            {role === "staff" && (
-              <div>
-                <label className="label">Custom Role (optional)</label>
-                <select className="input" value={roleId} onChange={(e) => setRoleId(e.target.value)}>
-                  <option value="">Unrestricted (default)</option>
-                  {roles.map((r) => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-gray-400">
-                  Restricts this member to only the modules that role&apos;s permission matrix grants (Settings → Users
-                  &amp; Roles → Roles). Leave unrestricted for full access, same as before this feature existed.
-                </p>
-              </div>
-            )}
             <div className="flex items-center gap-2 border-t border-gray-100 pt-4">
               <button onClick={onInvite} disabled={saving} className="btn-primary">
                 <UserPlus size={15} />

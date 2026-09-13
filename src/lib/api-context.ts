@@ -73,3 +73,41 @@ export async function getApiKeyContext(req: NextRequest): Promise<ApiKeyContext 
 export function apiUnauthorized(message = "Invalid or missing API key. Pass it as \"Authorization: Bearer <key>\".") {
   return NextResponse.json({ error: message }, { status: 401 });
 }
+
+/**
+ * Per-organization daily request cap for the third-party REST API, set by a Super Admin
+ * (Super Admin panel → API Request Limit, organizations.api_request_limit_per_day — null
+ * means unlimited, same "blank = unlimited" convention as max_users). Usage is tracked in
+ * api_usage_daily, one row per (organization, calendar day), incremented atomically on every
+ * authenticated /api/v1 call. Called right after getApiKeyContext succeeds in every /api/v1
+ * route handler; returns a ready-to-return 429 NextResponse once the org is over its limit for
+ * today, or null when the request should proceed (including the common case of no limit set).
+ * The day boundary follows the database server's local date (CURRENT_DATE) — not pinned to a
+ * specific timezone.
+ */
+export async function checkApiRequestLimit(orgId: string): Promise<NextResponse | null> {
+  const org = await queryOne<{ api_request_limit_per_day: number | null }>(
+    `SELECT api_request_limit_per_day FROM organizations WHERE id = $1`,
+    [orgId]
+  );
+  const limit = org?.api_request_limit_per_day;
+  if (limit == null) return null;
+
+  const usage = await queryOne<{ request_count: number }>(
+    `INSERT INTO api_usage_daily (organization_id, usage_date, request_count)
+     VALUES ($1, CURRENT_DATE, 1)
+     ON CONFLICT (organization_id, usage_date)
+     DO UPDATE SET request_count = api_usage_daily.request_count + 1
+     RETURNING request_count`,
+    [orgId]
+  );
+  const count = usage?.request_count ?? 0;
+
+  if (count > limit) {
+    return NextResponse.json(
+      { error: `This organization's daily API request limit (${limit}) has been reached. Try again tomorrow.` },
+      { status: 429 }
+    );
+  }
+  return null;
+}

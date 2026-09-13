@@ -31,7 +31,7 @@ export default async function TrialBalancePage({ searchParams }: { searchParams:
      FROM journal_lines jl
      JOIN manual_journals mj ON mj.id = jl.journal_id
      JOIN accounts a ON a.id = jl.account_id
-     WHERE mj.organization_id = $1 AND mj.status = 'published' AND mj.journal_date <= $2
+     WHERE mj.organization_id = $1 AND a.organization_id = $1 AND mj.status = 'published' AND mj.journal_date <= $2
      GROUP BY a.id, a.name
      HAVING COALESCE(SUM(jl.debit), 0) != COALESCE(SUM(jl.credit), 0)
      ORDER BY a.name`,

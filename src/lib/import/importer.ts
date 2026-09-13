@@ -206,10 +206,11 @@ async function resolveRowValues(
 async function createOneRecord(
   entity: string,
   orgId: string,
-  values: Record<string, unknown>
+  values: Record<string, unknown>,
+  userId: string
 ): Promise<{ ok: boolean; id?: string; error?: string }> {
   if (entity === "customers" || entity === "vendors") {
-    const row = await createRow(entity, orgId, values);
+    const row = await createRow(entity, orgId, values, { userId });
     return { ok: true, id: (row as { id?: string })?.id };
   }
 
@@ -231,14 +232,14 @@ async function createOneRecord(
       ],
       taxPercent: Number(values.taxPercent ?? 0),
     };
-    const result = await createDocument(cfg, orgId, body);
+    const result = await createDocument(cfg, orgId, body, { userId });
     if (!result.ok) return { ok: false, error: result.error ?? "Could not save this record." };
     return { ok: true, id: result.id };
   }
 
   if (entity === "receipts") {
     const body = values as ReceiptBody;
-    const result = await createReceipt(orgId, body);
+    const result = await createReceipt(orgId, body, { userId });
     if (!result.ok) return { ok: false, error: result.error ?? "Could not save this record." };
     return { ok: true, id: result.id };
   }
@@ -272,7 +273,7 @@ export async function runImport(
         outcomes.push({ rowNumber: row.rowNumber, status: "failed", errorMessage: error, rowData: rawRowData });
         continue;
       }
-      const result = await createOneRecord(entity, orgId, values);
+      const result = await createOneRecord(entity, orgId, values, userId);
       if (!result.ok) {
         outcomes.push({
           rowNumber: row.rowNumber,

@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { Search, Bell, Settings, ChevronDown, Plus, LogOut, Building2, Check, X, Settings2, ShieldCheck } from "lucide-react";
+import { Bell, Settings, ChevronDown, Plus, LogOut, Building2, Check, X, Settings2, ShieldCheck } from "lucide-react";
 import { orgDisplayId } from "@/lib/format";
+import GlobalSearch from "@/components/GlobalSearch";
 
 export default function Topbar({ orgName }: { orgName: string }) {
   const router = useRouter();
@@ -47,13 +48,7 @@ export default function Topbar({ orgName }: { orgName: string }) {
         <span className="text-[15px] font-semibold text-white">NeoAccountingZ</span>
       </div>
 
-      <div className="relative w-72 max-w-sm flex-1">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
-        <input
-          className="w-full rounded-md border-none bg-white/10 py-1.5 pl-8 pr-3 text-sm text-white placeholder:text-gray-400 focus:bg-white focus:text-ink-800 focus:outline-none"
-          placeholder="Search in Customers ( / )"
-        />
-      </div>
+      <GlobalSearch />
 
       <div className="flex-1" />
 

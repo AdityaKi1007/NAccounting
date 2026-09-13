@@ -5,6 +5,7 @@ import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { formatCurrency, formatDate, titleCase } from "@/lib/format";
 import { defaultFiscalYearRange } from "@/lib/report-dates";
+import { loadProjectUnitOptions, loadCustomerOptions, normalizeFilterId } from "@/lib/report-filters";
 import ReportDateRangeBar from "@/components/reports/ReportDateRangeBar";
 
 interface Row {
@@ -16,6 +17,8 @@ interface Row {
   status: string;
   amount: string;
   invoice_numbers: string | null;
+  project_name: string | null;
+  unit_name: string | null;
 }
 
 // Every payment received in the period, one row per payment (not per allocation) — a payment
@@ -24,7 +27,7 @@ interface Row {
 export default async function PaymentsReceivedReportPage({
   searchParams,
 }: {
-  searchParams: { from?: string; to?: string };
+  searchParams: { from?: string; to?: string; projectId?: string; unitId?: string; customerId?: string };
 }) {
   const ctx = await requireActiveContext();
   await requireModuleAccess(ctx, "reports", "view");
@@ -35,10 +38,17 @@ export default async function PaymentsReceivedReportPage({
   const defaults = defaultFiscalYearRange(org?.fiscal_year_start);
   const from = searchParams.from || defaults.from;
   const to = searchParams.to || defaults.to;
+  const projectId = normalizeFilterId(searchParams.projectId);
+  const unitId = normalizeFilterId(searchParams.unitId);
+  const customerId = normalizeFilterId(searchParams.customerId);
+  const [{ projects, units }, customers] = await Promise.all([
+    loadProjectUnitOptions(ctx.orgId),
+    loadCustomerOptions(ctx.orgId),
+  ]);
 
   const rows = await query<Row>(
     `SELECT p.id, p.payment_number, p.payment_date, c.display_name AS customer_name, p.payment_mode,
-            p.status, p.amount,
+            p.status, p.amount, proj.name AS project_name, u.name AS unit_name,
             (
               SELECT string_agg(i.invoice_number, ', ' ORDER BY i.invoice_number)
               FROM payment_allocations pa JOIN invoices i ON i.id = pa.invoice_id
@@ -46,9 +56,14 @@ export default async function PaymentsReceivedReportPage({
             ) AS invoice_numbers
      FROM payments_received p
      LEFT JOIN customers c ON c.id = p.customer_id
+     LEFT JOIN projects proj ON proj.id = p.project_id
+     LEFT JOIN inventory u ON u.id = p.unit_id
      WHERE p.organization_id = $1 AND p.payment_date BETWEEN $2 AND $3
+       AND ($4::uuid IS NULL OR p.project_id = $4::uuid)
+       AND ($5::uuid IS NULL OR p.unit_id = $5::uuid)
+       AND ($6::uuid IS NULL OR p.customer_id = $6::uuid)
      ORDER BY p.payment_date, p.payment_number`,
-    [ctx.orgId, from, to]
+    [ctx.orgId, from, to, projectId, unitId, customerId]
   );
 
   const total = rows.reduce((sum, r) => sum + Number(r.amount), 0);
@@ -65,7 +80,16 @@ export default async function PaymentsReceivedReportPage({
         </p>
       </div>
 
-      <ReportDateRangeBar from={from} to={to} />
+      <ReportDateRangeBar
+        from={from}
+        to={to}
+        projectId={projectId}
+        unitId={unitId}
+        projects={projects}
+        units={units}
+        customerId={customerId}
+        customers={customers}
+      />
 
       <div className="p-6">
         <div className="card overflow-x-auto">
@@ -76,6 +100,8 @@ export default async function PaymentsReceivedReportPage({
                 <th className="whitespace-nowrap px-5 py-2.5">Payment #</th>
                 <th className="whitespace-nowrap px-5 py-2.5">Customer Name</th>
                 <th className="whitespace-nowrap px-5 py-2.5">Invoice(s)</th>
+                <th className="whitespace-nowrap px-5 py-2.5">Project</th>
+                <th className="whitespace-nowrap px-5 py-2.5">Unit</th>
                 <th className="whitespace-nowrap px-5 py-2.5">Payment Mode</th>
                 <th className="whitespace-nowrap px-5 py-2.5">Status</th>
                 <th className="whitespace-nowrap px-5 py-2.5 text-right">Amount</th>
@@ -84,7 +110,7 @@ export default async function PaymentsReceivedReportPage({
             <tbody className="divide-y divide-gray-100">
               {rows.length === 0 ? (
                 <tr>
-                  <td className="px-5 py-10 text-center text-gray-400" colSpan={7}>
+                  <td className="px-5 py-10 text-center text-gray-400" colSpan={9}>
                     No payments received in this period.
                   </td>
                 </tr>
@@ -99,6 +125,8 @@ export default async function PaymentsReceivedReportPage({
                     </td>
                     <td className="whitespace-nowrap px-5 py-2.5 text-ink-700">{r.customer_name ?? "-"}</td>
                     <td className="px-5 py-2.5 text-ink-700">{r.invoice_numbers ?? "-"}</td>
+                    <td className="whitespace-nowrap px-5 py-2.5 text-ink-700">{r.project_name ?? "-"}</td>
+                    <td className="whitespace-nowrap px-5 py-2.5 text-ink-700">{r.unit_name ?? "-"}</td>
                     <td className="whitespace-nowrap px-5 py-2.5 text-ink-700">{titleCase(r.payment_mode)}</td>
                     <td className="whitespace-nowrap px-5 py-2.5 text-ink-700">{titleCase(r.status)}</td>
                     <td className="whitespace-nowrap px-5 py-2.5 text-right text-ink-800">
@@ -111,7 +139,7 @@ export default async function PaymentsReceivedReportPage({
             {rows.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold text-ink-800">
-                  <td className="px-5 py-2.5" colSpan={6}>
+                  <td className="px-5 py-2.5" colSpan={8}>
                     Total
                   </td>
                   <td className="px-5 py-2.5 text-right">{formatCurrency(total)}</td>

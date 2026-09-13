@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
 
-// Assigns (or clears) a custom Role — and, through it, that role's role_permissions matrix —
-// on an existing 'staff' membership. A null roleId restores today's unrestricted staff
-// behavior (see src/lib/module-access.ts). owner/admin memberships ignore role_id entirely
-// (they're always full-access), so this is a no-op there beyond storing the value.
+// Custom roles (role_permissions) have been retired from this app — it now only offers the
+// standard owner/admin/staff roles. This endpoint used to assign/clear a custom Role on a
+// membership; it's kept only to unconditionally clear any role_id a membership may already
+// carry from before that retirement, so nothing can reintroduce a custom-role assignment
+// (including a raw API call) even though the UI no longer offers one.
 export async function PATCH(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: { membershipId: string } }
 ) {
   const ctx = await getApiOrgContext();
@@ -22,16 +23,7 @@ export async function PATCH(
   );
   if (!membership) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const body = await req.json().catch(() => ({}));
-  const roleId = typeof body.roleId === "string" && body.roleId ? body.roleId : null;
-
-  if (roleId) {
-    const roleRow = await queryOne(`SELECT id FROM roles WHERE id = $1 AND organization_id = $2`, [roleId, ctx.orgId]);
-    if (!roleRow) return NextResponse.json({ error: "Unknown role." }, { status: 400 });
-  }
-
-  await pool.query(`UPDATE memberships SET role_id = $1 WHERE id = $2 AND organization_id = $3`, [
-    roleId,
+  await pool.query(`UPDATE memberships SET role_id = NULL WHERE id = $1 AND organization_id = $2`, [
     params.membershipId,
     ctx.orgId,
   ]);

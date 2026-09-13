@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { pool } from "@/lib/db";
+import { pool, queryOne } from "@/lib/db";
 import { getSuperAdminApiContext } from "@/lib/super-admin";
 import { MODULE_KEYS } from "@/lib/modules";
 
@@ -16,13 +16,38 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     subscription_plan,
     max_users,
     disabled_modules,
+    api_request_limit_per_day,
   } = body as {
     approval_status?: "pending" | "approved" | "rejected" | "suspended";
     rejection_reason?: string | null;
     subscription_plan?: string;
     max_users?: number | null;
     disabled_modules?: string[];
+    api_request_limit_per_day?: number | null;
   };
+
+  // Subscription plan and Suspend Account don't apply to a Super Admin's own organization —
+  // the UI (SuperAdminOrgsTable) already hides those controls for such a row, but this is the
+  // server-side backstop so a direct API call can't do it either.
+  const ownerIsSuperAdmin =
+    (approval_status === "suspended" || subscription_plan !== undefined)
+      ? Boolean(
+          (
+            await queryOne<{ is_super_admin: boolean }>(
+              `SELECT u.is_super_admin FROM memberships m JOIN users u ON u.id = m.user_id
+               WHERE m.organization_id = $1 AND m.role = 'owner' ORDER BY m.created_at ASC LIMIT 1`,
+              [params.id]
+            )
+          )?.is_super_admin
+        )
+      : false;
+
+  if (approval_status === "suspended" && ownerIsSuperAdmin) {
+    return NextResponse.json({ error: "A Super Admin's own organization can't be suspended." }, { status: 400 });
+  }
+  if (subscription_plan !== undefined && ownerIsSuperAdmin) {
+    return NextResponse.json({ error: "A Super Admin's own organization doesn't have a subscription plan to set." }, { status: 400 });
+  }
 
   const sets: string[] = [];
   const values: unknown[] = [];
@@ -67,6 +92,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
     sets.push(`disabled_modules = $${i++}`);
     values.push(disabled_modules);
+  }
+
+  if (api_request_limit_per_day !== undefined) {
+    if (api_request_limit_per_day !== null && (!Number.isInteger(api_request_limit_per_day) || api_request_limit_per_day < 1)) {
+      return NextResponse.json(
+        { error: "API request limit must be a positive whole number, or blank for unlimited." },
+        { status: 400 }
+      );
+    }
+    sets.push(`api_request_limit_per_day = $${i++}`);
+    values.push(api_request_limit_per_day);
   }
 
   if (sets.length === 0) {

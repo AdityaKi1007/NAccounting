@@ -36,6 +36,9 @@ interface SalesOrderData {
   termsConditions: string | null;
   convertedInvoiceId: string | null;
   convertedPurchaseOrderId: string | null;
+  /** External CRM system's own reference number for this sales order
+   * (migrations/1776000000000_crm_reference_numbers.js). */
+  crmSoNo: string | null;
 }
 
 interface CustomerData {
@@ -428,6 +431,15 @@ export default function SalesOrderDetailView({
                     </Link>
                   </div>
                 )}
+              </div>
+            )}
+
+            {salesOrder.crmSoNo && (
+              <div className="mt-4 flex flex-wrap gap-6 border-t border-gray-100 pt-4 text-sm">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">CRM SO No</p>
+                  <p className="text-ink-700">{salesOrder.crmSoNo}</p>
+                </div>
               </div>
             )}
 

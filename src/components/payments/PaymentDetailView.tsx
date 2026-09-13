@@ -20,6 +20,9 @@ interface PaymentData {
   referenceNumber: string | null;
   status: string;
   notes: string | null;
+  /** External CRM system's own reference number for this receipt
+   * (migrations/1776000000000_crm_reference_numbers.js). */
+  crmReceiptNo: string | null;
 }
 
 interface AllocationData {
@@ -223,6 +226,12 @@ export default function PaymentDetailView({
                   <span className="w-36 text-gray-500">Reference Number</span>
                   <span className="font-medium text-ink-800">{payment.referenceNumber || "-"}</span>
                 </div>
+                {payment.crmReceiptNo && (
+                  <div className="flex gap-8">
+                    <span className="w-36 text-gray-500">CRM Receipt No</span>
+                    <span className="font-medium text-ink-800">{payment.crmReceiptNo}</span>
+                  </div>
+                )}
                 <div className="flex gap-8">
                   <span className="w-36 text-gray-500">Payment Mode</span>
                   <span className="font-medium text-ink-800">{paymentModeLabel(payment.paymentMode)}</span>

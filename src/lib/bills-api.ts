@@ -1,6 +1,8 @@
 import { pool, query, queryOne } from "@/lib/db";
 import { getOrCreateNumberSeries, claimNextNumber } from "@/lib/number-series";
 import { syncBillJournal } from "@/lib/auto-journal";
+import { idBelongsToOrg, idsBelongToOrg } from "@/lib/tenant-guard";
+import { recordAuditLog, type AuditActor } from "@/lib/audit-log";
 
 // Bespoke create/update for Bills — NOT the generic createDocument/updateDocument in
 // documents-api.ts (which bills is still registered with in src/lib/documents.ts, kept
@@ -72,6 +74,23 @@ async function prepareLines(orgId: string, rawLines: BillLineInput[] | undefined
   const candidates = (rawLines ?? []).filter((l) => (l.description || l.item_id) && Number(l.quantity) > 0);
   if (candidates.length === 0) return { lines: [], error: "Add at least one line item." };
 
+  // Every account_id/customer_id/item_id a line submits must belong to this org — only
+  // tax_rate_id was ever checked before (below); an unvalidated account_id let a bill post
+  // straight into another organization's chart of accounts (or leak another org's item/
+  // customer names into this org's records via the DataTable ref-link).
+  const lineAccountIds = [...new Set(candidates.map((l) => l.account_id).filter((v): v is string => Boolean(v)))];
+  if (lineAccountIds.length > 0 && !(await idsBelongToOrg("accounts", lineAccountIds, orgId))) {
+    return { lines: [], error: "One or more selected Accounts are invalid." };
+  }
+  const lineCustomerIds = [...new Set(candidates.map((l) => l.customer_id).filter((v): v is string => Boolean(v)))];
+  if (lineCustomerIds.length > 0 && !(await idsBelongToOrg("customers", lineCustomerIds, orgId))) {
+    return { lines: [], error: "One or more selected Customers are invalid." };
+  }
+  const lineItemIds = [...new Set(candidates.map((l) => l.item_id).filter((v): v is string => Boolean(v)))];
+  if (lineItemIds.length > 0 && !(await idsBelongToOrg("items", lineItemIds, orgId))) {
+    return { lines: [], error: "One or more selected Items are invalid." };
+  }
+
   const taxRateIds = [...new Set(candidates.map((l) => l.tax_rate_id).filter((v): v is string => Boolean(v)))];
   const rateMap = new Map<string, number>();
   if (taxRateIds.length > 0) {
@@ -105,7 +124,7 @@ async function prepareLines(orgId: string, rawLines: BillLineInput[] | undefined
   return { lines };
 }
 
-export async function createBill(orgId: string, body: BillBody): Promise<BillActionResult> {
+export async function createBill(orgId: string, body: BillBody, actor: AuditActor = {}): Promise<BillActionResult> {
   if (!body.vendor_id) return { ok: false, error: "Vendor Name is required.", status: 400 };
   if (!body.bill_date) return { ok: false, error: "Bill Date is required.", status: 400 };
 
@@ -117,6 +136,16 @@ export async function createBill(orgId: string, body: BillBody): Promise<BillAct
 
   const { lines, error } = await prepareLines(orgId, body.lines);
   if (error) return { ok: false, error, status: 400 };
+
+  if (body.accounts_payable_account_id && !(await idBelongsToOrg("accounts", body.accounts_payable_account_id, orgId))) {
+    return { ok: false, error: "Select a valid Accounts Payable account.", status: 400 };
+  }
+  if (body.project_id && !(await idBelongsToOrg("projects", body.project_id, orgId))) {
+    return { ok: false, error: "Select a valid Project.", status: 400 };
+  }
+  if (body.unit_id && !(await idBelongsToOrg("inventory", body.unit_id, orgId))) {
+    return { ok: false, error: "Select a valid Unit.", status: 400 };
+  }
 
   const requestedStatus = body.status === "draft" ? "draft" : "open";
 
@@ -177,7 +206,23 @@ export async function createBill(orgId: string, body: BillBody): Promise<BillAct
 
     await syncBillJournal(client, orgId, billId);
 
+    const auditNewRow = (await client.query(`SELECT * FROM bills WHERE id = $1`, [billId])).rows[0] as
+      | Record<string, unknown>
+      | undefined;
+
     await client.query("COMMIT");
+
+    await recordAuditLog({
+      orgId,
+      actor,
+      action: "create",
+      module: "bills",
+      entityId: billId,
+      entityLabel: auditNewRow ? String(auditNewRow.bill_number ?? "") : null,
+      oldData: null,
+      newData: auditNewRow ?? null,
+    });
+
     return { ok: true, id: billId };
   } catch (err) {
     await client.query("ROLLBACK");
@@ -193,7 +238,12 @@ export async function createBill(orgId: string, body: BillBody): Promise<BillAct
   }
 }
 
-export async function updateBill(orgId: string, id: string, body: BillBody): Promise<BillActionResult> {
+export async function updateBill(
+  orgId: string,
+  id: string,
+  body: BillBody,
+  actor: AuditActor = {}
+): Promise<BillActionResult> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -212,6 +262,26 @@ export async function updateBill(orgId: string, id: string, body: BillBody): Pro
     if (error) {
       await client.query("ROLLBACK");
       return { ok: false, error, status: 400 };
+    }
+
+    // A changed vendor_id/accounts_payable_account_id/project_id/unit_id must belong to this
+    // org too — createBill above already checks these at creation time, but an edit that
+    // reassigns them went unchecked until now.
+    if (body.vendor_id && !(await idBelongsToOrg("vendors", body.vendor_id, orgId))) {
+      await client.query("ROLLBACK");
+      return { ok: false, error: "Select a valid vendor.", status: 400 };
+    }
+    if (body.accounts_payable_account_id && !(await idBelongsToOrg("accounts", body.accounts_payable_account_id, orgId))) {
+      await client.query("ROLLBACK");
+      return { ok: false, error: "Select a valid Accounts Payable account.", status: 400 };
+    }
+    if (body.project_id && !(await idBelongsToOrg("projects", body.project_id, orgId))) {
+      await client.query("ROLLBACK");
+      return { ok: false, error: "Select a valid Project.", status: 400 };
+    }
+    if (body.unit_id && !(await idBelongsToOrg("inventory", body.unit_id, orgId))) {
+      await client.query("ROLLBACK");
+      return { ok: false, error: "Select a valid Unit.", status: 400 };
     }
 
     const subtotal = round2(lines.reduce((sum, l) => sum + l.amount, 0));
@@ -266,7 +336,23 @@ export async function updateBill(orgId: string, id: string, body: BillBody): Pro
 
     await syncBillJournal(client, orgId, id);
 
+    const auditNewRow = (await client.query(`SELECT * FROM bills WHERE id = $1`, [id])).rows[0] as
+      | Record<string, unknown>
+      | undefined;
+
     await client.query("COMMIT");
+
+    await recordAuditLog({
+      orgId,
+      actor,
+      action: "update",
+      module: "bills",
+      entityId: id,
+      entityLabel: auditNewRow ? String(auditNewRow.bill_number ?? "") : null,
+      oldData: current as Record<string, unknown>,
+      newData: auditNewRow ?? null,
+    });
+
     return { ok: true, id };
   } catch (err) {
     await client.query("ROLLBACK");

@@ -128,6 +128,7 @@ export default function CustomerForm({ accountOptions, initial, recordId }: Prop
   const [shippingAddress, setShippingAddress] = useState<string>(String(h.shipping_address ?? ""));
   const [remarks, setRemarks] = useState<string>(String(h.remarks ?? ""));
   const [isActive, setIsActive] = useState<boolean>(h.is_active === undefined ? true : Boolean(h.is_active));
+  const [crmCustomerNo, setCrmCustomerNo] = useState<string>(String(h.crm_customer_no ?? ""));
 
   const [contacts, setContacts] = useState<ContactRow[]>(
     initial?.contacts?.length ? initial.contacts : []
@@ -185,6 +186,7 @@ export default function CustomerForm({ accountOptions, initial, recordId }: Prop
           shipping_address: shippingAddress,
           remarks,
           is_active: isActive,
+          crm_customer_no: crmCustomerNo,
         },
         contacts: contacts.map(({ key, ...rest }) => rest),
       }),
@@ -381,6 +383,14 @@ export default function CustomerForm({ accountOptions, initial, recordId }: Prop
                 />
                 Allow portal access for this customer
               </label>
+
+              <label className="label pt-1.5">CRM Customer No</label>
+              <input
+                className="input max-w-xs"
+                value={crmCustomerNo}
+                onChange={(e) => setCrmCustomerNo(e.target.value)}
+                placeholder="Reference number from your CRM"
+              />
 
               <label className="label pt-1.5">Documents</label>
               <div>

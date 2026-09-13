@@ -5,6 +5,7 @@ import { requireModuleAccess } from "@/lib/module-access";
 import { query } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { defaultAsOfDate } from "@/lib/report-dates";
+import { loadProjectUnitOptions, normalizeFilterId } from "@/lib/report-filters";
 import ReportAsOfBar from "@/components/reports/ReportAsOfBar";
 
 interface Row {
@@ -20,25 +21,39 @@ interface Row {
 // invoice's balance_due raised on or before that date. Simpler than Receivable Summary (no
 // period activity breakdown) and simpler than AR Aging Summary (no age buckets) — this is
 // just "who owes us how much, right now."
-export default async function CustomerBalanceSummaryPage({ searchParams }: { searchParams: { asOf?: string } }) {
+export default async function CustomerBalanceSummaryPage({
+  searchParams,
+}: {
+  searchParams: { asOf?: string; projectId?: string; unitId?: string };
+}) {
   const ctx = await requireActiveContext();
   await requireModuleAccess(ctx, "reports", "view");
   const asOf = searchParams.asOf || defaultAsOfDate();
+  const projectId = normalizeFilterId(searchParams.projectId);
+  const unitId = normalizeFilterId(searchParams.unitId);
+  const { projects, units } = await loadProjectUnitOptions(ctx.orgId);
+  const filtered = Boolean(projectId || unitId);
 
   const rows = await query<Row>(
     `SELECT c.id, c.display_name, c.currency, c.opening_balance,
             COALESCE((
               SELECT SUM(i.balance_due) FROM invoices i
               WHERE i.customer_id = c.id AND i.status NOT IN ('draft', 'void') AND i.invoice_date <= $2
+                AND ($3::uuid IS NULL OR i.project_id = $3::uuid)
+                AND ($4::uuid IS NULL OR i.unit_id = $4::uuid)
             ), 0) AS invoices_balance
      FROM customers c
      WHERE c.organization_id = $1
      ORDER BY c.display_name`,
-    [ctx.orgId, asOf]
+    [ctx.orgId, asOf, projectId, unitId]
   );
 
+  // A customer's Opening Balance is captured once on their record, not tied to any Project or
+  // Unit — it can't be honestly split by that dimension, so it's excluded from Balance
+  // whenever a Project/Unit filter is active (see the note below the table) rather than being
+  // added in wholesale, which would overstate a filtered project's real receivable position.
   const withBalance = rows
-    .map((r) => ({ ...r, balance: Number(r.opening_balance) + Number(r.invoices_balance) }))
+    .map((r) => ({ ...r, balance: (filtered ? 0 : Number(r.opening_balance)) + Number(r.invoices_balance) }))
     .filter((r) => Math.abs(r.balance) > 0.005)
     .sort((a, b) => b.balance - a.balance);
 
@@ -54,7 +69,7 @@ export default async function CustomerBalanceSummaryPage({ searchParams }: { sea
         <p className="mt-0.5 text-sm text-gray-500">As of {formatDate(asOf)}</p>
       </div>
 
-      <ReportAsOfBar asOf={asOf} />
+      <ReportAsOfBar asOf={asOf} projectId={projectId} unitId={unitId} projects={projects} units={units} />
 
       <div className="p-6">
         <div className="card overflow-hidden">
@@ -99,6 +114,13 @@ export default async function CustomerBalanceSummaryPage({ searchParams }: { sea
             )}
           </table>
         </div>
+        {filtered && (
+          <p className="mt-3 text-xs text-gray-400">
+            Filtered by Project/Unit: Balance reflects only invoices tagged to the selected Project/Unit. Customer
+            Opening Balances aren&apos;t tied to a Project or Unit, so they&apos;re excluded from Balance while this
+            filter is active (switch back to All Projects/All Units to include them).
+          </p>
+        )}
       </div>
     </div>
   );

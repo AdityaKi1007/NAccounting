@@ -1,6 +1,7 @@
 import { pool, query, queryOne } from "@/lib/db";
 import { claimNextNumber, getOrCreateNumberSeries } from "@/lib/number-series";
 import { syncVendorCreditJournal } from "@/lib/auto-journal";
+import { idBelongsToOrg, idsBelongToOrg } from "@/lib/tenant-guard";
 
 // Bespoke create/update for Vendor Credits — this document type never had line items at all
 // before (vendor_credits was a plain flat total+reason record), so this is a from-scratch
@@ -58,6 +59,21 @@ async function prepareLines(orgId: string, rawLines: VendorCreditLineInput[] | u
   const candidates = (rawLines ?? []).filter((l) => (l.description || l.item_id) && Number(l.quantity) > 0);
   if (candidates.length === 0) return { lines: [], error: "Add at least one line item." };
 
+  // Same reasoning as bills-api.ts's prepareLines: only tax_rate_id was ever checked before
+  // (below) — account_id/customer_id/item_id must belong to this org too.
+  const lineAccountIds = [...new Set(candidates.map((l) => l.account_id).filter((v): v is string => Boolean(v)))];
+  if (lineAccountIds.length > 0 && !(await idsBelongToOrg("accounts", lineAccountIds, orgId))) {
+    return { lines: [], error: "One or more selected Accounts are invalid." };
+  }
+  const lineCustomerIds = [...new Set(candidates.map((l) => l.customer_id).filter((v): v is string => Boolean(v)))];
+  if (lineCustomerIds.length > 0 && !(await idsBelongToOrg("customers", lineCustomerIds, orgId))) {
+    return { lines: [], error: "One or more selected Customers are invalid." };
+  }
+  const lineItemIds = [...new Set(candidates.map((l) => l.item_id).filter((v): v is string => Boolean(v)))];
+  if (lineItemIds.length > 0 && !(await idsBelongToOrg("items", lineItemIds, orgId))) {
+    return { lines: [], error: "One or more selected Items are invalid." };
+  }
+
   const taxRateIds = [...new Set(candidates.map((l) => l.tax_rate_id).filter((v): v is string => Boolean(v)))];
   const rateMap = new Map<string, number>();
   if (taxRateIds.length > 0) {
@@ -112,6 +128,10 @@ export async function createVendorCredit(orgId: string, body: VendorCreditBody):
 
   const { lines, error } = await prepareLines(orgId, body.lines);
   if (error) return { ok: false, error, status: 400 };
+
+  if (body.accounts_payable_account_id && !(await idBelongsToOrg("accounts", body.accounts_payable_account_id, orgId))) {
+    return { ok: false, error: "Select a valid Accounts Payable account.", status: 400 };
+  }
 
   const { subtotal, taxTotal, total, discount } = totals(lines, Number(body.discount_percent ?? 0));
   const requestedStatus = body.status === "closed" ? "closed" : "open";
@@ -198,6 +218,17 @@ export async function updateVendorCredit(orgId: string, id: string, body: Vendor
     if (error) {
       await client.query("ROLLBACK");
       return { ok: false, error, status: 400 };
+    }
+
+    // A changed vendor_id/accounts_payable_account_id must belong to this org too — createVendorCredit
+    // above already checks these at creation time, but an edit that reassigns them went unchecked.
+    if (body.vendor_id && !(await idBelongsToOrg("vendors", body.vendor_id, orgId))) {
+      await client.query("ROLLBACK");
+      return { ok: false, error: "Select a valid vendor.", status: 400 };
+    }
+    if (body.accounts_payable_account_id && !(await idBelongsToOrg("accounts", body.accounts_payable_account_id, orgId))) {
+      await client.query("ROLLBACK");
+      return { ok: false, error: "Select a valid Accounts Payable account.", status: 400 };
     }
 
     const { subtotal, taxTotal, total, discount } = totals(lines, Number(body.discount_percent ?? current.discount_percent ?? 0));

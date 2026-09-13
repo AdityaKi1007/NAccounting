@@ -2,6 +2,8 @@ import type { PoolClient } from "pg";
 import { pool, query, queryOne } from "@/lib/db";
 import { claimNextNumber } from "@/lib/number-series";
 import { syncPaymentMadeJournal, recomputeBillBalance } from "@/lib/auto-journal";
+import { idBelongsToOrg } from "@/lib/tenant-guard";
+import { recordAuditLog, type AuditActor } from "@/lib/audit-log";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -38,7 +40,11 @@ export interface PaymentMadeActionResult {
   status?: number;
 }
 
-export async function createPaymentMade(orgId: string, body: PaymentMadeBody): Promise<PaymentMadeActionResult> {
+export async function createPaymentMade(
+  orgId: string,
+  body: PaymentMadeBody,
+  actor: AuditActor = {}
+): Promise<PaymentMadeActionResult> {
   if (!body.vendor_id) return { ok: false, error: "Vendor Name is required.", status: 400 };
   const amount = Number(body.amount);
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "Amount Paid must be greater than 0.", status: 400 };
@@ -55,6 +61,13 @@ export async function createPaymentMade(orgId: string, body: PaymentMadeBody): P
     orgId,
   ]);
   if (!bankAccount) return { ok: false, error: "Select a valid Paid Through account.", status: 400 };
+
+  if (body.project_id && !(await idBelongsToOrg("projects", body.project_id, orgId))) {
+    return { ok: false, error: "Select a valid Project.", status: 400 };
+  }
+  if (body.unit_id && !(await idBelongsToOrg("inventory", body.unit_id, orgId))) {
+    return { ok: false, error: "Select a valid Unit.", status: 400 };
+  }
 
   const status = body.status === "draft" ? "draft" : "paid";
   const allocations = (body.allocations ?? []).filter(
@@ -119,7 +132,23 @@ export async function createPaymentMade(orgId: string, body: PaymentMadeBody): P
 
     await syncPaymentMadeJournal(client, orgId, paymentId);
 
+    const auditNewRow = (await client.query(`SELECT * FROM payments_made WHERE id = $1`, [paymentId])).rows[0] as
+      | Record<string, unknown>
+      | undefined;
+
     await client.query("COMMIT");
+
+    await recordAuditLog({
+      orgId,
+      actor,
+      action: "create",
+      module: "payments-made",
+      entityId: paymentId,
+      entityLabel: auditNewRow ? String(auditNewRow.payment_number ?? "") : null,
+      oldData: null,
+      newData: auditNewRow ?? null,
+    });
+
     return { ok: true, id: paymentId };
   } catch (err) {
     await client.query("ROLLBACK");

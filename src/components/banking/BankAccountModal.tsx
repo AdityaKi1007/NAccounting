@@ -6,6 +6,12 @@ import Modal from "@/components/ui/Modal";
 
 const CURRENCIES = ["AED", "USD", "EUR", "GBP", "INR"];
 
+export interface GLAccountOption {
+  id: string;
+  name: string;
+  type: string;
+}
+
 export interface BankAccountData {
   id?: string;
   account_type: string;
@@ -17,6 +23,12 @@ export interface BankAccountData {
   bank_identifier_code: string;
   description: string;
   is_primary: boolean;
+  /** Empty string = auto-create a new, freshly linked Chart of Accounts entry on save (see
+   * getOrCreateBankGLAccount in auto-journal.ts) — set it to link this bank/credit-card
+   * account to an EXISTING Chart of Accounts entry instead, e.g. one already created by hand
+   * under Chart of Accounts, so a real-world account doesn't end up with two disconnected
+   * ledger entries. */
+  gl_account_id: string;
 }
 
 const empty: BankAccountData = {
@@ -29,16 +41,19 @@ const empty: BankAccountData = {
   bank_identifier_code: "",
   description: "",
   is_primary: false,
+  gl_account_id: "",
 };
 
 export default function BankAccountModal({
   open,
   onClose,
   initial,
+  glAccountOptions,
 }: {
   open: boolean;
   onClose: () => void;
   initial?: BankAccountData | null;
+  glAccountOptions: GLAccountOption[];
 }) {
   const router = useRouter();
   const [data, setData] = useState<BankAccountData>(initial ?? empty);
@@ -144,6 +159,23 @@ export default function BankAccountModal({
             value={data.bank_identifier_code}
             onChange={(e) => set("bank_identifier_code", e.target.value)}
           />
+        </div>
+
+        <div>
+          <label className="label">Link to Chart of Accounts</label>
+          <select className="input" value={data.gl_account_id} onChange={(e) => set("gl_account_id", e.target.value)}>
+            <option value="">Auto-create a new linked account</option>
+            {glAccountOptions.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-gray-400">
+            {data.id
+              ? "Change this only if this account is linked to the wrong Chart of Accounts entry — every receipt, payment and expense already posted against it stays exactly where it is."
+              : "Leave as-is to get a fresh Chart of Accounts entry automatically, or pick an existing one if you already created it there by hand (e.g. under Chart of Accounts)."}
+          </p>
         </div>
 
         <div>

@@ -5,6 +5,7 @@ import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { defaultFiscalYearRange } from "@/lib/report-dates";
+import { loadProjectUnitOptions, normalizeFilterId } from "@/lib/report-filters";
 import ReportDateRangeBar from "@/components/reports/ReportDateRangeBar";
 
 interface StatusRow {
@@ -28,7 +29,7 @@ const STATUS_LABELS: Record<string, string> = {
 export default async function SalesSummaryPage({
   searchParams,
 }: {
-  searchParams: { from?: string; to?: string };
+  searchParams: { from?: string; to?: string; projectId?: string; unitId?: string };
 }) {
   const ctx = await requireActiveContext();
   await requireModuleAccess(ctx, "reports", "view");
@@ -39,6 +40,9 @@ export default async function SalesSummaryPage({
   const defaults = defaultFiscalYearRange(org?.fiscal_year_start);
   const from = searchParams.from || defaults.from;
   const to = searchParams.to || defaults.to;
+  const projectId = normalizeFilterId(searchParams.projectId);
+  const unitId = normalizeFilterId(searchParams.unitId);
+  const { projects, units } = await loadProjectUnitOptions(ctx.orgId);
 
   // All invoices in the period, broken down by status — draft/void included here (unlike the
   // other Sales reports) since this report's purpose is to show the full picture of what was
@@ -47,9 +51,11 @@ export default async function SalesSummaryPage({
     `SELECT status, count(*) AS invoice_count, SUM(subtotal) AS subtotal, SUM(tax_total) AS tax_total, SUM(total) AS total
      FROM invoices
      WHERE organization_id = $1 AND invoice_date BETWEEN $2 AND $3
+       AND ($4::uuid IS NULL OR project_id = $4::uuid)
+       AND ($5::uuid IS NULL OR unit_id = $5::uuid)
      GROUP BY status
      ORDER BY SUM(total) DESC`,
-    [ctx.orgId, from, to]
+    [ctx.orgId, from, to, projectId, unitId]
   );
 
   const salesRows = rows.filter((r) => r.status !== "draft" && r.status !== "void");
@@ -70,7 +76,7 @@ export default async function SalesSummaryPage({
         </p>
       </div>
 
-      <ReportDateRangeBar from={from} to={to} />
+      <ReportDateRangeBar from={from} to={to} projectId={projectId} unitId={unitId} projects={projects} units={units} />
 
       <div className="p-6 space-y-6">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

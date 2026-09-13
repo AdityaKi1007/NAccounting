@@ -9,7 +9,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const accessError = await moduleAccessErrorResponse(ctx, "credit-notes", "write");
   if (accessError) return accessError;
 
-  const result = await voidCreditOrDebitNote("credit", ctx.orgId, params.id);
+  const result = await voidCreditOrDebitNote("credit", ctx.orgId, params.id, { userId: ctx.userId });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
   return NextResponse.json({ id: result.id });
 }

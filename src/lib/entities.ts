@@ -216,6 +216,12 @@ export const entities: Record<string, EntityDef> = {
       { name: "billing_address", label: "Billing Address", type: "textarea" },
       { name: "shipping_address", label: "Shipping Address", type: "textarea" },
       { name: "remarks", label: "Remarks", type: "textarea" },
+      // External CRM system's own reference number for this customer
+      // (migrations/1776000000000_crm_reference_numbers.js) — free text, no uniqueness check.
+      // This entry is what the v1 API's crud.ts-based create/update path reads; the app UI's
+      // own bespoke create/edit form goes through customers.ts's HEADER_COLUMNS instead (see
+      // that file), so this field had to be added there too.
+      { name: "crm_customer_no", label: "CRM Customer No", type: "text" },
       { name: "is_active", label: "Active", type: "boolean", default: true },
     ],
   },
@@ -370,6 +376,11 @@ export const entities: Record<string, EntityDef> = {
       },
       { name: "notes", label: "Customer Notes", type: "textarea" },
       { name: "terms_conditions", label: "Terms & Conditions", type: "textarea" },
+      // External CRM system's own reference number for this sales order
+      // (migrations/1776000000000_crm_reference_numbers.js) — same "exists only for generic
+      // list/detail machinery" reasoning as project_id/unit_id above; SalesOrderForm.tsx is
+      // where this is actually entered.
+      { name: "crm_so_no", label: "CRM SO No", type: "text" },
       // Display-only metadata for the list view — SalesOrderForm.tsx (the real edit form for
       // this "sales_order" kind) never reads entity.fields at all, so this can't leak into
       // any form. Without it, DataTable's renderCell has no type info for the "total" list
@@ -433,6 +444,11 @@ export const entities: Record<string, EntityDef> = {
         ],
       },
       { name: "salesperson", label: "Salesperson", type: "text" },
+      // External CRM system's own reference number for this invoice
+      // (migrations/1776000000000_crm_reference_numbers.js) — surfaced by DocumentForm.tsx
+      // directly (gated on cfg.key === "invoices"), same as salesperson/project_id/unit_id
+      // above; this entry exists so the generic list/detail machinery can resolve+show it.
+      { name: "crm_inv_no", label: "CRM Inv No", type: "text" },
       { name: "notes", label: "Notes", type: "textarea" },
       // Display-only metadata for the list view, same reasoning as sales-orders' "total"
       // entry above — DocumentForm.tsx never reads entity.fields, so this is invisible to
@@ -594,6 +610,12 @@ export const entities: Record<string, EntityDef> = {
         ],
       },
       { name: "notes", label: "Notes", type: "textarea" },
+      // External CRM system's own reference number for this receipt
+      // (migrations/1776000000000_crm_reference_numbers.js), plain text — used by the
+      // generic EntityForm edit path (see the "kind" comment above) and by the v1 API via
+      // updateReceiptMeta's explicit whitelist (src/lib/receipts-api.ts). RecordPaymentForm.tsx
+      // renders it directly for create.
+      { name: "crm_receipt_no", label: "CRM Receipt No", type: "text" },
     ],
   },
 
@@ -716,6 +738,10 @@ export const entities: Record<string, EntityDef> = {
       { name: "billing_address", label: "Billing Address", type: "textarea" },
       { name: "currency", label: "Currency", type: "select", options: currency, default: "AED" },
       { name: "opening_balance", label: "Opening Balance", type: "currency", default: 0 },
+      // External CRM system's own reference number for this vendor, for orgs syncing to/from
+      // an outside CRM (migrations/1776000000000_crm_reference_numbers.js). Free text, no
+      // uniqueness constraint — see that migration's own comment for why.
+      { name: "crm_vendor_no", label: "CRM Vendor No", type: "text" },
       { name: "is_active", label: "Active", type: "boolean", default: true },
     ],
   },
@@ -1263,6 +1289,14 @@ export const entities: Record<string, EntityDef> = {
       { name: "bank_identifier_code", label: "Bank Identifier Code", type: "text" },
       { name: "description", label: "Description", type: "textarea" },
       { name: "is_primary", label: "Make this primary", type: "boolean", default: false },
+      // Optional — lets this bank/credit-card account be linked to an EXISTING Chart of
+      // Accounts entry (e.g. one the user already created by hand) instead of always getting
+      // a fresh auto-created one. Left blank on create, getOrCreateBankGLAccount
+      // (auto-journal.ts) auto-creates and links a new GL account right away — see the
+      // bank-accounts branch in /api/entities/[entity]/route.ts and [id]/route.ts. Not shown
+      // in listColumns; BankAccountModal.tsx renders this as its own dedicated select rather
+      // than relying on the generic EntityForm, same as every other field on this entity.
+      { name: "gl_account_id", label: "Link to Chart of Accounts", type: "select", refEntity: "chart-of-accounts", refLabelField: "name" },
     ],
   },
 
@@ -1396,6 +1430,13 @@ export const entities: Record<string, EntityDef> = {
       { name: "code", label: "Code", type: "text" },
       { name: "rera_project_name", label: "Rera Project Name", type: "text" },
       {
+        name: "legal_entity_id",
+        label: "Legal Entity",
+        type: "select",
+        refEntity: "legal-entities",
+        refLabelField: "entity_name",
+      },
+      {
         name: "status",
         label: "Status",
         type: "select",
@@ -1414,6 +1455,32 @@ export const entities: Record<string, EntityDef> = {
       { name: "project_address", label: "Project Address", type: "textarea" },
       { name: "country", label: "Country", type: "select", options: COUNTRY_OPTIONS },
       { name: "city", label: "City", type: "text" },
+    ],
+  },
+
+  // Plain master-data lookup, requested to be "selectable on projects" — see projects'
+  // legal_entity_id field above. Read-only detail view (shows every field + the Projects
+  // pointing at this Legal Entity) instead of going straight to the edit form — see
+  // src/app/(app)/legal-entities/[id]/page.tsx. Editing moves to /legal-entities/[id]/edit
+  // (src/app/(app)/legal-entities/[id]/edit/page.tsx), same pattern as Buildings/Projects.
+  "legal-entities": {
+    key: "legal-entities",
+    table: "legal_entities",
+    label: "Legal Entity",
+    labelPlural: "Legal Entities",
+    module: "Property Master",
+    kind: "flat",
+    titleField: "entity_name",
+    orderBy: "created_at desc",
+    hasDetailView: true,
+    listColumns: ["entity_name", "entity_name_arabic", "email", "phone", "registration_num"],
+    fields: [
+      { name: "entity_name", label: "Entity Name", type: "text", required: true },
+      { name: "entity_name_arabic", label: "Entity Name Arabic", type: "text" },
+      { name: "email", label: "Email", type: "email" },
+      { name: "phone", label: "Phone", type: "text" },
+      { name: "registration_num", label: "Registration Num", type: "text" },
+      { name: "description", label: "Description", type: "textarea" },
     ],
   },
 

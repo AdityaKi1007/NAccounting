@@ -38,7 +38,7 @@ async function loadCumulative(orgId: string, asOf: string, types: string[]): Pro
      FROM journal_lines jl
      JOIN manual_journals mj ON mj.id = jl.journal_id
      JOIN accounts a ON a.id = jl.account_id
-     WHERE mj.organization_id = $1 AND mj.status = 'published' AND mj.journal_date <= $2 AND a.type = ANY($3::text[])
+     WHERE mj.organization_id = $1 AND a.organization_id = $1 AND mj.status = 'published' AND mj.journal_date <= $2 AND a.type = ANY($3::text[])
      GROUP BY a.id, a.name, a.type
      HAVING COALESCE(SUM(jl.debit), 0) != COALESCE(SUM(jl.credit), 0)
      ORDER BY a.name`,

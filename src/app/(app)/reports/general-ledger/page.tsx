@@ -6,6 +6,7 @@ import { query, queryOne } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { defaultFiscalYearRange } from "@/lib/report-dates";
 import { processDueJournalReversals } from "@/lib/journal-reversals";
+import { loadProjectUnitOptions, normalizeFilterId } from "@/lib/report-filters";
 import ReportDateRangeBar from "@/components/reports/ReportDateRangeBar";
 
 interface Row {
@@ -36,7 +37,7 @@ const DEBIT_NORMAL_TYPES = [
 export default async function GeneralLedgerPage({
   searchParams,
 }: {
-  searchParams: { from?: string; to?: string };
+  searchParams: { from?: string; to?: string; projectId?: string; unitId?: string };
 }) {
   const ctx = await requireActiveContext();
   await requireModuleAccess(ctx, "reports", "view");
@@ -48,7 +49,18 @@ export default async function GeneralLedgerPage({
   const defaults = defaultFiscalYearRange(org?.fiscal_year_start);
   const from = searchParams.from || defaults.from;
   const to = searchParams.to || defaults.to;
+  const projectId = normalizeFilterId(searchParams.projectId);
+  const unitId = normalizeFilterId(searchParams.unitId);
+  const { projects, units } = await loadProjectUnitOptions(ctx.orgId);
+  const filtered = Boolean(projectId || unitId);
 
+  // Journals aren't themselves tagged with a Project/Unit — a journal's attribution is traced
+  // back to the document that generated it (invoice/bill/payment received/payment made), via
+  // manual_journals' own link-back columns. Because a journal is internally balanced and every
+  // one of its lines shares the same source document, filtering by this traced project/unit
+  // drops or keeps a whole journal at a time — every included journal's own debit=credit
+  // balance is preserved. Journals with no traceable source (credit/debit notes, expenses,
+  // vendor credits, refunds, opening balances) are necessarily excluded when a filter is active.
   const rows = await query<Row>(
     `SELECT a.id, a.name, a.type,
             COALESCE(SUM(jl.debit) FILTER (WHERE mj.journal_date < $2), 0) AS opening_debit,
@@ -58,10 +70,17 @@ export default async function GeneralLedgerPage({
      FROM accounts a
      JOIN journal_lines jl ON jl.account_id = a.id
      JOIN manual_journals mj ON mj.id = jl.journal_id AND mj.status = 'published' AND mj.journal_date <= $3
+     LEFT JOIN invoices src_inv ON src_inv.id = mj.invoice_id
+     LEFT JOIN bills src_bill ON src_bill.id = mj.bill_id
+     LEFT JOIN payments_received src_pr ON src_pr.id = mj.payment_id
+     LEFT JOIN payments_made src_pm ON src_pm.id = mj.payment_made_id
      WHERE a.organization_id = $1
+       AND mj.organization_id = $1
+       AND ($4::uuid IS NULL OR COALESCE(src_inv.project_id, src_bill.project_id, src_pr.project_id, src_pm.project_id) = $4::uuid)
+       AND ($5::uuid IS NULL OR COALESCE(src_inv.unit_id, src_bill.unit_id, src_pr.unit_id, src_pm.unit_id) = $5::uuid)
      GROUP BY a.id, a.name, a.type
      ORDER BY a.name`,
-    [ctx.orgId, from, to]
+    [ctx.orgId, from, to, projectId, unitId]
   );
 
   const active = rows
@@ -94,7 +113,7 @@ export default async function GeneralLedgerPage({
         </p>
       </div>
 
-      <ReportDateRangeBar from={from} to={to} />
+      <ReportDateRangeBar from={from} to={to} projectId={projectId} unitId={unitId} projects={projects} units={units} />
 
       <div className="p-6">
         <div className="card overflow-x-auto">
@@ -158,6 +177,14 @@ export default async function GeneralLedgerPage({
           liability/equity/income accounts). This is a per-account summary — for every individual journal line,
           open a document&apos;s own Journal panel.
         </p>
+        {filtered && (
+          <p className="mt-1 text-xs text-gray-400">
+            Filtered by Project/Unit: only journal entries traceable to a Project/Unit-tagged Invoice, Bill,
+            Payment Received, or Payment Made are included. Entries with no traceable source — Credit/Debit
+            Notes, Expenses, Vendor Credits, Refunds, and Opening Balance entries — are excluded while this
+            filter is active (switch back to All Projects/All Units to include them).
+          </p>
+        )}
       </div>
     </div>
   );

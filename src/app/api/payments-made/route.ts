@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   if (accessError) return accessError;
 
   const body: PaymentMadeBody = await req.json().catch(() => ({}) as PaymentMadeBody);
-  const result = await createPaymentMade(ctx.orgId, body);
+  const result = await createPaymentMade(ctx.orgId, body, { userId: ctx.userId });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
   return NextResponse.json({ id: result.id }, { status: 201 });
 }

@@ -30,6 +30,9 @@ export interface CustomerHeaderInput {
   shipping_address?: string;
   remarks?: string;
   is_active?: boolean;
+  /** External CRM system's own reference number for this customer
+   * (migrations/1776000000000_crm_reference_numbers.js) — free text, no uniqueness check. */
+  crm_customer_no?: string;
 }
 
 const HEADER_COLUMNS = [
@@ -53,6 +56,7 @@ const HEADER_COLUMNS = [
   "shipping_address",
   "remarks",
   "is_active",
+  "crm_customer_no",
 ] as const;
 
 export function extractHeaderValues(input: CustomerHeaderInput) {

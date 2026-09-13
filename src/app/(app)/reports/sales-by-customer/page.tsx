@@ -5,6 +5,7 @@ import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { defaultFiscalYearRange } from "@/lib/report-dates";
+import { loadProjectUnitOptions, normalizeFilterId } from "@/lib/report-filters";
 import ReportDateRangeBar from "@/components/reports/ReportDateRangeBar";
 
 interface Row {
@@ -17,7 +18,7 @@ interface Row {
 export default async function SalesByCustomerPage({
   searchParams,
 }: {
-  searchParams: { from?: string; to?: string };
+  searchParams: { from?: string; to?: string; projectId?: string; unitId?: string };
 }) {
   const ctx = await requireActiveContext();
   await requireModuleAccess(ctx, "reports", "view");
@@ -28,6 +29,9 @@ export default async function SalesByCustomerPage({
   const defaults = defaultFiscalYearRange(org?.fiscal_year_start);
   const from = searchParams.from || defaults.from;
   const to = searchParams.to || defaults.to;
+  const projectId = normalizeFilterId(searchParams.projectId);
+  const unitId = normalizeFilterId(searchParams.unitId);
+  const { projects, units } = await loadProjectUnitOptions(ctx.orgId);
 
   // Draft/Void invoices aren't real sales yet — same "posted revenue" boundary
   // syncInvoiceJournal uses (see auto-journal.ts).
@@ -36,9 +40,11 @@ export default async function SalesByCustomerPage({
      FROM invoices i
      LEFT JOIN customers c ON c.id = i.customer_id
      WHERE i.organization_id = $1 AND i.status NOT IN ('draft', 'void') AND i.invoice_date BETWEEN $2 AND $3
+       AND ($4::uuid IS NULL OR i.project_id = $4::uuid)
+       AND ($5::uuid IS NULL OR i.unit_id = $5::uuid)
      GROUP BY c.id, c.display_name
      ORDER BY SUM(i.total) DESC`,
-    [ctx.orgId, from, to]
+    [ctx.orgId, from, to, projectId, unitId]
   );
   const grandTotal = rows.reduce((sum, r) => sum + Number(r.total), 0);
 
@@ -54,7 +60,7 @@ export default async function SalesByCustomerPage({
         </p>
       </div>
 
-      <ReportDateRangeBar from={from} to={to} />
+      <ReportDateRangeBar from={from} to={to} projectId={projectId} unitId={unitId} projects={projects} units={units} />
 
       <div className="p-6">
         <div className="card overflow-hidden">

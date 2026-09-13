@@ -104,7 +104,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       rate: l.item_id && costById.has(l.item_id) ? (costById.get(l.item_id) as number) : Number(l.rate),
     })),
     taxPercent: 0,
-  });
+  }, { userId: ctx.userId });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
 
   await pool.query(

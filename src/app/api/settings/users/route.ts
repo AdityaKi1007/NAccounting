@@ -9,7 +9,7 @@ export async function GET() {
   if (!ctx) return unauthorized();
 
   const rows = await query(
-    `SELECT m.id AS membership_id, m.role, m.role_id, m.created_at AS joined_at, u.id AS user_id, u.name, u.email
+    `SELECT m.id AS membership_id, m.role, m.created_at AS joined_at, u.id AS user_id, u.name, u.email
      FROM memberships m
      JOIN users u ON u.id = m.user_id
      WHERE m.organization_id = $1
@@ -32,9 +32,10 @@ export async function POST(req: NextRequest) {
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const role = ROLES.includes(body.role) ? body.role : "staff";
-  // Only meaningful for 'staff' — see role_permissions/module-access.ts. A blank/omitted
-  // value keeps today's unrestricted behavior for this member.
-  const roleId = role === "staff" && typeof body.roleId === "string" && body.roleId ? body.roleId : null;
+  // Custom roles (role_permissions) have been retired from the invite flow — this app now
+  // only offers the standard owner/admin/staff roles, so every new membership is always
+  // unrestricted (role_id null), regardless of anything a caller submits.
+  const roleId: string | null = null;
 
   if (!email) {
     return NextResponse.json({ error: "Email is required." }, { status: 400 });
@@ -57,11 +58,6 @@ export async function POST(req: NextRequest) {
         { status: 403 }
       );
     }
-  }
-
-  if (roleId) {
-    const roleRow = await queryOne(`SELECT id FROM roles WHERE id = $1 AND organization_id = $2`, [roleId, ctx.orgId]);
-    if (!roleRow) return NextResponse.json({ error: "Unknown role." }, { status: 400 });
   }
 
   const client = await pool.connect();

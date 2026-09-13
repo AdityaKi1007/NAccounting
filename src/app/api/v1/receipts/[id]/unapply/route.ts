@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getApiKeyContext, apiUnauthorized } from "@/lib/api-context";
+import { getApiKeyContext, apiUnauthorized, checkApiRequestLimit } from "@/lib/api-context";
 import { unapplyReceiptAllocation, getReceipt } from "@/lib/receipts-api";
 
 // POST /api/v1/receipts/{id}/unapply — removes this receipt's application against one
@@ -9,6 +9,8 @@ import { unapplyReceiptAllocation, getReceipt } from "@/lib/receipts-api";
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiKeyContext(req);
   if (!ctx) return apiUnauthorized();
+  const limitError = await checkApiRequestLimit(ctx.orgId);
+  if (limitError) return limitError;
 
   const body = await req.json().catch(() => ({}));
   const invoiceId = typeof body.invoice_id === "string" ? body.invoice_id : "";

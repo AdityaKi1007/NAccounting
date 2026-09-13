@@ -4,6 +4,7 @@ import { getApiOrgContext, unauthorized } from "@/lib/api-context";
 import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { extractHeaderValues, type CustomerHeaderInput, type ContactPersonInput } from "@/lib/customers";
 import { syncOpeningBalanceJournal } from "@/lib/auto-journal";
+import { recordAuditLog } from "@/lib/audit-log";
 
 interface Body {
   header: CustomerHeaderInput;
@@ -44,6 +45,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const values = extractHeaderValues(body.header);
   values.display_name = displayName;
 
+  // Fetched before the transaction opens (same "before" pattern as receipts-api's
+  // updateReceiptMeta) so the audit diff reflects the row as it stood prior to this request.
+  const auditOldRow = await queryOne(`SELECT * FROM customers WHERE organization_id = $1 AND id = $2`, [
+    ctx.orgId,
+    params.id,
+  ]);
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -75,7 +83,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // Accounts Receivable line so the GL stays in sync with this customer's saved value.
     await syncOpeningBalanceJournal(client, ctx.orgId);
 
+    const auditNewRow = (await client.query(`SELECT * FROM customers WHERE id = $1`, [params.id])).rows[0];
+
     await client.query("COMMIT");
+
+    await recordAuditLog({
+      orgId: ctx.orgId,
+      actor: { userId: ctx.userId },
+      action: "update",
+      module: "customers",
+      entityId: params.id,
+      entityLabel: displayName,
+      oldData: auditOldRow ?? null,
+      newData: auditNewRow ?? null,
+    });
+
     return NextResponse.json({ id: params.id });
   } catch (err) {
     await client.query("ROLLBACK");
@@ -92,6 +114,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const accessError = await moduleAccessErrorResponse(ctx, "customers", "write");
   if (accessError) return accessError;
 
+  const auditOldRow = await queryOne(`SELECT * FROM customers WHERE organization_id = $1 AND id = $2`, [
+    ctx.orgId,
+    params.id,
+  ]);
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -106,6 +133,19 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     return NextResponse.json({ error: "Could not delete this customer." }, { status: 500 });
   } finally {
     client.release();
+  }
+
+  if (auditOldRow) {
+    await recordAuditLog({
+      orgId: ctx.orgId,
+      actor: { userId: ctx.userId },
+      action: "delete",
+      module: "customers",
+      entityId: params.id,
+      entityLabel: (auditOldRow.display_name as string) ?? null,
+      oldData: auditOldRow,
+      newData: null,
+    });
   }
 
   return NextResponse.json({ ok: true });

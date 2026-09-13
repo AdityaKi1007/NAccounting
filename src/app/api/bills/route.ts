@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   if (accessError) return accessError;
 
   const body: BillBody = await req.json().catch(() => ({}) as BillBody);
-  const result = await createBill(ctx.orgId, body);
+  const result = await createBill(ctx.orgId, body, { userId: ctx.userId });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
   return NextResponse.json({ id: result.id }, { status: 201 });
 }

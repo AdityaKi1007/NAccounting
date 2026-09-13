@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronRight, Settings2 } from "lucide-react";
+import { ChevronRight, Settings2, ShieldAlert } from "lucide-react";
 import { getSettingsItem } from "@/lib/settings";
 import { requireActiveContext } from "@/lib/session";
 import { queryOne, query } from "@/lib/db";
@@ -13,13 +13,15 @@ import TaxPreferencesForm from "@/components/settings/TaxPreferencesForm";
 import CorporateTaxForm from "@/components/settings/CorporateTaxForm";
 import RemindersManager from "@/components/settings/RemindersManager";
 import SettingsEntityList from "@/components/settings/SettingsEntityList";
-import RolePermissionsManager from "@/components/settings/RolePermissionsManager";
 import ApiKeysManager from "@/components/settings/ApiKeysManager";
 import ApiFieldConfigBuilder from "@/components/settings/ApiFieldConfigBuilder";
 import NumberSeriesSettings from "@/components/settings/NumberSeriesSettings";
 import OpeningBalancesManager from "@/components/settings/OpeningBalancesManager";
-import EmailSmtpSettingsForm from "@/components/settings/EmailSmtpSettingsForm";
+import EmailSettingsForm from "@/components/settings/EmailSettingsForm";
 import S3StorageSettingsForm from "@/components/settings/S3StorageSettingsForm";
+import GeneralSettingsInfo from "@/components/settings/GeneralSettingsInfo";
+import AuditLogViewer from "@/components/settings/AuditLogViewer";
+import ApiUsageDetails from "@/components/settings/ApiUsageDetails";
 import { getOrCreateNumberSeries, NUMBER_SERIES_MODULES } from "@/lib/number-series";
 import { accountCategory } from "@/lib/accounts";
 import { getOrgLogoDataUri } from "@/lib/s3";
@@ -43,21 +45,38 @@ export default async function SettingsItemPage({
 
   // Resolved server-side as an inline data: URI (never a presigned S3 URL) — see the comment
   // on getOrgLogoDataUri in src/lib/s3.ts for why. Only fetched for the one settings view
-  // that actually shows it, same as orgSeq/smtpRow/s3Row above.
+  // that actually shows it, same as orgSeq/emailRow/s3Row above.
   const logoDataUri = item.view === "company-profile" ? await getOrgLogoDataUri(ctx.orgId) : null;
 
-  const smtpRow =
-    item.view === "email-smtp"
+  // All three email providers' saved fields at once, so the client component can offer the
+  // Provider dropdown without a second round trip. Mirrors the shape /api/settings/email GET
+  // returns — see shapeRow() there.
+  const emailRow =
+    item.view === "email-settings"
       ? await queryOne<{
+          email_provider: "smtp" | "sendgrid" | "ses" | null;
           smtp_host: string | null;
           smtp_port: number | null;
           smtp_user: string | null;
           smtp_from: string | null;
+          smtp_from_name: string | null;
           smtp_secure: boolean;
-          password_set: boolean;
+          smtp_password_set: boolean;
+          sendgrid_from_name: string | null;
+          sendgrid_from_email: string | null;
+          sendgrid_api_key_set: boolean;
+          ses_access_key_id: string | null;
+          ses_region: string | null;
+          ses_from_name: string | null;
+          ses_from_email: string | null;
+          ses_secret_key_set: boolean;
         }>(
-          `SELECT smtp_host, smtp_port, smtp_user, smtp_from, smtp_secure,
-                  (smtp_password_encrypted IS NOT NULL) AS password_set
+          `SELECT email_provider, smtp_host, smtp_port, smtp_user, smtp_from, smtp_from_name, smtp_secure,
+                  (smtp_password_encrypted IS NOT NULL) AS smtp_password_set,
+                  sendgrid_from_name, sendgrid_from_email,
+                  (sendgrid_api_key_encrypted IS NOT NULL) AS sendgrid_api_key_set,
+                  ses_access_key_id, ses_region, ses_from_name, ses_from_email,
+                  (ses_secret_access_key_encrypted IS NOT NULL) AS ses_secret_key_set
            FROM organizations WHERE id = $1`,
           [ctx.orgId]
         )
@@ -80,6 +99,98 @@ export default async function SettingsItemPage({
         )
       : null;
 
+  // Read-only account info (Subscription Plan / Max Users / API Request Limit) — every value
+  // here is set by a Super Admin (see the Super Admin panel), never by this page.
+  const generalInfo =
+    item.view === "general-info"
+      ? await (async () => {
+          const [org, userCount, apiUsageToday] = await Promise.all([
+            queryOne<{
+              subscription_plan: string;
+              max_users: number | null;
+              api_request_limit_per_day: number | null;
+            }>(
+              `SELECT subscription_plan, max_users, api_request_limit_per_day FROM organizations WHERE id = $1`,
+              [ctx.orgId]
+            ),
+            queryOne<{ count: string }>(`SELECT count(*) FROM memberships WHERE organization_id = $1`, [ctx.orgId]),
+            queryOne<{ request_count: number }>(
+              `SELECT request_count FROM api_usage_daily WHERE organization_id = $1 AND usage_date = CURRENT_DATE`,
+              [ctx.orgId]
+            ),
+          ]);
+          return {
+            subscriptionPlan: org?.subscription_plan ?? "standard",
+            maxUsers: org?.max_users ?? null,
+            currentUserCount: Number(userCount?.count ?? 0),
+            apiRequestLimitPerDay: org?.api_request_limit_per_day ?? null,
+            apiRequestsToday: apiUsageToday?.request_count ?? 0,
+          };
+        })()
+      : null;
+
+  // Owner/Admin only, per the account owner's explicit answer when this feature was scoped —
+  // the API route (/api/settings/audit-logs) enforces the same check independently, this is
+  // just what keeps the page itself from showing the log viewer to anyone else.
+  const canViewAuditLogs = ctx.role === "owner" || ctx.role === "admin";
+
+  const auditLogUsers =
+    item.view === "audit-logs" && canViewAuditLogs
+      ? ((await query(
+          `SELECT u.id AS user_id, u.name, u.email
+           FROM memberships m JOIN users u ON u.id = m.user_id
+           WHERE m.organization_id = $1
+           ORDER BY u.name ASC`,
+          [ctx.orgId]
+        )) as { user_id: string; name: string; email: string }[])
+      : null;
+
+  // Reuses the existing api_keys.request_count/last_used_at and api_usage_daily counters
+  // (already tracked in api-context.ts) rather than a new per-request log table — see
+  // ApiUsageDetails.tsx.
+  const apiUsageData =
+    item.view === "api-usage"
+      ? await (async () => {
+          const [org, todayUsage, daily, keys] = await Promise.all([
+            queryOne<{ api_request_limit_per_day: number | null }>(
+              `SELECT api_request_limit_per_day FROM organizations WHERE id = $1`,
+              [ctx.orgId]
+            ),
+            queryOne<{ request_count: number }>(
+              `SELECT request_count FROM api_usage_daily WHERE organization_id = $1 AND usage_date = CURRENT_DATE`,
+              [ctx.orgId]
+            ),
+            query(
+              `SELECT usage_date, request_count FROM api_usage_daily
+               WHERE organization_id = $1 AND usage_date >= CURRENT_DATE - INTERVAL '13 days'
+               ORDER BY usage_date DESC`,
+              [ctx.orgId]
+            ) as Promise<{ usage_date: string; request_count: number }[]>,
+            query(
+              `SELECT id, name, key_prefix, is_active, request_count, last_used_at, created_at
+               FROM api_keys WHERE organization_id = $1 ORDER BY request_count DESC, created_at ASC`,
+              [ctx.orgId]
+            ) as Promise<
+              {
+                id: string;
+                name: string;
+                key_prefix: string;
+                is_active: boolean;
+                request_count: number;
+                last_used_at: string | null;
+                created_at: string;
+              }[]
+            >,
+          ]);
+          return {
+            apiRequestLimitPerDay: org?.api_request_limit_per_day ?? null,
+            requestsToday: todayUsage?.request_count ?? 0,
+            dailyUsage: daily,
+            apiKeys: keys,
+          };
+        })()
+      : null;
+
   return (
     <div>
       <div className="border-b border-gray-200 bg-white px-6 py-4">
@@ -92,7 +203,7 @@ export default async function SettingsItemPage({
           <ChevronRight size={12} />
           <span className="text-ink-700">{item.label}</span>
         </div>
-        {item.view !== "api-keys" && (
+        {item.view !== "api-keys" && item.view !== "audit-logs" && (
           <>
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-semibold text-ink-800">
@@ -151,17 +262,11 @@ export default async function SettingsItemPage({
           <UsersList
             users={
               (await query(
-                `SELECT m.id AS membership_id, m.role, m.role_id, m.created_at AS joined_at, u.id AS user_id, u.name, u.email
+                `SELECT m.id AS membership_id, m.role, m.created_at AS joined_at, u.id AS user_id, u.name, u.email
                  FROM memberships m
                  JOIN users u ON u.id = m.user_id
                  WHERE m.organization_id = $1
                  ORDER BY m.created_at ASC`,
-                [ctx.orgId]
-              )) as never[]
-            }
-            roles={
-              (await query<{ id: string; name: string }>(
-                `SELECT id, name FROM roles WHERE organization_id = $1 ORDER BY name ASC`,
                 [ctx.orgId]
               )) as never[]
             }
@@ -259,26 +364,16 @@ export default async function SettingsItemPage({
           />
         )}
 
-        {item.view === "roles-list" && (
-          <div className="space-y-8">
-            <SettingsEntityList entityKey="roles" orgId={ctx.orgId} />
-            <div className="border-t border-gray-200 pt-6">
-              <h3 className="mb-1 text-sm font-semibold text-ink-800">Module Permissions</h3>
-              <p className="mb-4 text-sm text-gray-500">
-                Define what each role can view and edit. Only applies to a &apos;Staff&apos; member once this role is
-                assigned to them under Users &amp; Roles → Users — Owners and Admins always have full access.
-              </p>
-              <RolePermissionsManager
-                roles={
-                  (await query<{ id: string; name: string }>(
-                    `SELECT id, name FROM roles WHERE organization_id = $1 ORDER BY name ASC`,
-                    [ctx.orgId]
-                  ))
-                }
-              />
-            </div>
-          </div>
+        {item.view === "general-info" && generalInfo && (
+          <GeneralSettingsInfo
+            subscriptionPlan={generalInfo.subscriptionPlan}
+            maxUsers={generalInfo.maxUsers}
+            currentUserCount={generalInfo.currentUserCount}
+            apiRequestLimitPerDay={generalInfo.apiRequestLimitPerDay}
+            apiRequestsToday={generalInfo.apiRequestsToday}
+          />
         )}
+
         {item.view === "currencies-list" && <SettingsEntityList entityKey="currencies" orgId={ctx.orgId} />}
         {item.view === "payment-terms-list" && <SettingsEntityList entityKey="payment-terms" orgId={ctx.orgId} />}
 
@@ -418,17 +513,33 @@ export default async function SettingsItemPage({
 
         {item.view === "api-keys" && <ApiFieldConfigBuilder />}
 
-        {item.view === "email-smtp" && (
-          <EmailSmtpSettingsForm
+        {item.view === "email-settings" && (
+          <EmailSettingsForm
             initial={(() => {
-              const row = smtpRow;
+              const row = emailRow;
               return {
-                smtp_host: row?.smtp_host ?? "",
-                smtp_port: row?.smtp_port ?? null,
-                smtp_user: row?.smtp_user ?? "",
-                smtp_from: row?.smtp_from ?? "",
-                smtp_secure: Boolean(row?.smtp_secure),
-                password_set: Boolean(row?.password_set),
+                active_provider: row?.email_provider ?? null,
+                smtp: {
+                  host: row?.smtp_host ?? "",
+                  port: row?.smtp_port ?? null,
+                  user: row?.smtp_user ?? "",
+                  from: row?.smtp_from ?? "",
+                  from_name: row?.smtp_from_name ?? "",
+                  secure: Boolean(row?.smtp_secure),
+                  password_set: Boolean(row?.smtp_password_set),
+                },
+                sendgrid: {
+                  from_name: row?.sendgrid_from_name ?? "",
+                  from_email: row?.sendgrid_from_email ?? "",
+                  api_key_set: Boolean(row?.sendgrid_api_key_set),
+                },
+                ses: {
+                  access_key_id: row?.ses_access_key_id ?? "",
+                  region: row?.ses_region ?? "",
+                  from_name: row?.ses_from_name ?? "",
+                  from_email: row?.ses_from_email ?? "",
+                  secret_key_set: Boolean(row?.ses_secret_key_set),
+                },
               };
             })()}
             defaultTestEmail={ctx.userEmail}
@@ -450,6 +561,29 @@ export default async function SettingsItemPage({
               };
             })()}
             canManage={ctx.role === "owner" || ctx.role === "admin"}
+          />
+        )}
+
+        {item.view === "audit-logs" &&
+          (canViewAuditLogs ? (
+            <AuditLogViewer users={auditLogUsers ?? []} />
+          ) : (
+            <div className="card flex flex-col items-center justify-center gap-3 py-24 text-center">
+              <ShieldAlert size={40} className="text-gray-300" />
+              <h2 className="text-base font-semibold text-ink-800">Owner and Admin Only</h2>
+              <p className="max-w-sm text-sm text-gray-500">
+                Audit logs are visible only to your organization&apos;s Owner and Admin. Ask one of them if you
+                need to see a change here.
+              </p>
+            </div>
+          ))}
+
+        {item.view === "api-usage" && apiUsageData && (
+          <ApiUsageDetails
+            apiRequestLimitPerDay={apiUsageData.apiRequestLimitPerDay}
+            requestsToday={apiUsageData.requestsToday}
+            dailyUsage={apiUsageData.dailyUsage}
+            apiKeys={apiUsageData.apiKeys}
           />
         )}
 

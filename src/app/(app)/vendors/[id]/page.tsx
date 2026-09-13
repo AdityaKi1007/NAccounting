@@ -22,6 +22,7 @@ interface VendorRow {
   currency: string;
   is_active: boolean;
   opening_balance: number | string;
+  crm_vendor_no: string | null;
   created_at: string;
 }
 
@@ -200,7 +201,7 @@ export default async function VendorDetailPage({ params }: { params: { id: strin
   await requireModuleAccess(ctx, "vendors", "view");
 
   const vendor = await queryOne<VendorRow>(
-    `SELECT id, display_name, company_name, email, phone, billing_address, currency, is_active, opening_balance, created_at
+    `SELECT id, display_name, company_name, email, phone, billing_address, currency, is_active, opening_balance, crm_vendor_no, created_at
      FROM vendors WHERE id = $1 AND organization_id = $2`,
     [params.id, ctx.orgId]
   );
@@ -436,6 +437,7 @@ export default async function VendorDetailPage({ params }: { params: { id: strin
           <div className="grid grid-cols-2 gap-4">
             <Field label="Default Currency" value={vendor.currency} />
             <Field label="Status" value={vendor.is_active ? "Active" : "Inactive"} />
+            <Field label="CRM Vendor No" value={vendor.crm_vendor_no || "-"} />
           </div>
         </div>
 

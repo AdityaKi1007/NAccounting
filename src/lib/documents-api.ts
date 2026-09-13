@@ -3,6 +3,14 @@ import type { DocumentConfig } from "@/lib/documents";
 import { docNumber } from "@/lib/ids";
 import { getOrCreateNumberSeries, claimNextNumber } from "@/lib/number-series";
 import { syncInvoiceJournal, syncBillJournal } from "@/lib/auto-journal";
+import { getEntity } from "@/lib/entities";
+import { idBelongsToOrg, idsBelongToOrg } from "@/lib/tenant-guard";
+import { recordAuditLog, type AuditActor } from "@/lib/audit-log";
+
+// Of the five document types this shared engine serves (quotes, invoices, bills, sales
+// orders, purchase orders), only these three were asked to be audited — Quotes and Sales
+// Orders are deliberately excluded, same as everywhere else in this feature.
+const AUDITED_DOCUMENT_ENTITIES = new Set(["invoices", "bills", "purchase-orders"]);
 
 // Shared create/update logic for every "document" entity (quotes, invoices, bills, sales
 // orders — anything registered in src/lib/documents.ts): header + line items in one
@@ -46,6 +54,44 @@ export async function getDocument(cfg: DocumentConfig, orgId: string, id: string
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * Validates every foreign-key reference a document submits — the party (customer/vendor),
+ * any FK-type extraHeaderField (project_id/unit_id/sales_order_id — see documents.ts'
+ * extraHeaderFieldRefs), and every line's item_id — against the org it's being saved under.
+ * Without this, a client could attribute an invoice/sales-order to another organization's
+ * customer, tag it with another organization's project, or reference another organization's
+ * item, none of which the header/line INSERT below would otherwise catch (only each row's OWN
+ * organization_id column is protected there). Only checks values actually present/truthy, so
+ * it's safe to call for both a full create and a partial update.
+ */
+async function validateDocumentRefs(
+  cfg: DocumentConfig,
+  orgId: string,
+  header: Record<string, unknown> | undefined,
+  itemIds: (string | null | undefined)[]
+): Promise<string | null> {
+  const partyValue = header?.[cfg.partyField];
+  if (partyValue) {
+    const partyEntity = getEntity(cfg.partyRefEntity);
+    if (partyEntity && !(await idBelongsToOrg(partyEntity.table, partyValue, orgId))) {
+      return cfg.partyRefEntity === "vendors" ? "Select a valid vendor." : "Select a valid customer.";
+    }
+  }
+  for (const [field, refKey] of Object.entries(cfg.extraHeaderFieldRefs ?? {})) {
+    const value = header?.[field];
+    if (!value) continue;
+    const refEntity = getEntity(refKey);
+    if (refEntity && !(await idBelongsToOrg(refEntity.table, value, orgId))) {
+      return `Select a valid value for ${field.replace(/_/g, " ")}.`;
+    }
+  }
+  const cleanItemIds = itemIds.filter((v): v is string => Boolean(v));
+  if (cleanItemIds.length > 0 && !(await idsBelongToOrg("items", cleanItemIds, orgId))) {
+    return "One or more selected items are invalid.";
+  }
+  return null;
+}
+
 function lineAmount(cfg: DocumentConfig, line: { quantity?: number; rate?: number; discount_percent?: number }) {
   const gross = Number(line.quantity ?? 0) * Number(line.rate ?? 0);
   if (!cfg.hasLineDiscount) return gross;
@@ -53,8 +99,17 @@ function lineAmount(cfg: DocumentConfig, line: { quantity?: number; rate?: numbe
   return Math.round(gross * (1 - discount / 100) * 100) / 100;
 }
 
-export async function createDocument(cfg: DocumentConfig, orgId: string, body: DocumentBody): Promise<DocumentActionResult> {
+export async function createDocument(
+  cfg: DocumentConfig,
+  orgId: string,
+  body: DocumentBody,
+  actor: AuditActor = {}
+): Promise<DocumentActionResult> {
   const lines = (body.lines ?? []).filter((l) => (l.description || l.item_id) && Number(l.quantity) > 0);
+
+  const refError = await validateDocumentRefs(cfg, orgId, body.header, lines.map((l) => l.item_id));
+  if (refError) return { ok: false, error: refError, status: 400 };
+
   const subtotal = lines.reduce((sum, l) => sum + lineAmount(cfg, l), 0);
   const taxPercent = Number(body.taxPercent ?? 0);
   const taxTotal = Math.round(subtotal * (taxPercent / 100) * 100) / 100;
@@ -156,7 +211,33 @@ export async function createDocument(cfg: DocumentConfig, orgId: string, body: D
       await syncBillJournal(client, orgId, headerId);
     }
 
+    let auditNewRow: Record<string, unknown> | undefined;
+    if (AUDITED_DOCUMENT_ENTITIES.has(cfg.entityKey)) {
+      // Read back inside the same still-open transaction (cheap — one extra SELECT, not yet
+      // committed) so the row handed to recordAuditLog reflects exactly what was written; the
+      // actual audit_log INSERT itself happens via the separate `pool` connection AFTER
+      // COMMIT below, never before it — an audit write must never be the reason a real
+      // create/update/delete gets rolled back.
+      auditNewRow = (await client.query(`SELECT * FROM ${cfg.headerTable} WHERE id = $1`, [headerId])).rows[0] as
+        | Record<string, unknown>
+        | undefined;
+    }
+
     await client.query("COMMIT");
+
+    if (AUDITED_DOCUMENT_ENTITIES.has(cfg.entityKey)) {
+      await recordAuditLog({
+        orgId,
+        actor,
+        action: "create",
+        module: cfg.entityKey,
+        entityId: headerId,
+        entityLabel: auditNewRow ? String(auditNewRow[cfg.numberField] ?? "") : null,
+        oldData: null,
+        newData: auditNewRow ?? null,
+      });
+    }
+
     return { ok: true, id: headerId };
   } catch (err) {
     await client.query("ROLLBACK");
@@ -171,7 +252,8 @@ export async function updateDocument(
   cfg: DocumentConfig,
   orgId: string,
   id: string,
-  body: DocumentBody
+  body: DocumentBody,
+  actor: AuditActor = {}
 ): Promise<DocumentActionResult> {
   const hasBalanceDue = cfg.key === "invoices" || cfg.key === "bills";
 
@@ -201,6 +283,12 @@ export async function updateDocument(
     let taxTotal = Number(current.tax_total);
     let total = Number(current.total);
     const lines = linesProvided ? (body.lines ?? []).filter((l) => (l.description || l.item_id) && Number(l.quantity) > 0) : [];
+
+    const refError = await validateDocumentRefs(cfg, orgId, body.header, lines.map((l) => l.item_id));
+    if (refError) {
+      await client.query("ROLLBACK");
+      return { ok: false, error: refError, status: 400 };
+    }
 
     if (linesProvided) {
       subtotal = lines.reduce((sum, l) => sum + lineAmount(cfg, l), 0);
@@ -301,7 +389,28 @@ export async function updateDocument(
       await syncBillJournal(client, orgId, id);
     }
 
+    let auditNewRow: Record<string, unknown> | undefined;
+    if (AUDITED_DOCUMENT_ENTITIES.has(cfg.entityKey)) {
+      auditNewRow = (await client.query(`SELECT * FROM ${cfg.headerTable} WHERE id = $1`, [id])).rows[0] as
+        | Record<string, unknown>
+        | undefined;
+    }
+
     await client.query("COMMIT");
+
+    if (AUDITED_DOCUMENT_ENTITIES.has(cfg.entityKey)) {
+      await recordAuditLog({
+        orgId,
+        actor,
+        action: "update",
+        module: cfg.entityKey,
+        entityId: id,
+        entityLabel: auditNewRow ? String(auditNewRow[cfg.numberField] ?? "") : null,
+        oldData: current as Record<string, unknown>,
+        newData: auditNewRow ?? null,
+      });
+    }
+
     return { ok: true, id };
   } catch (err) {
     await client.query("ROLLBACK");

@@ -3,6 +3,7 @@ import { pool, query, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
 import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { syncJournalReversal } from "@/lib/journal-reversals";
+import { validateJournalLineRefs } from "@/lib/tenant-guard";
 
 interface Body {
   header: {
@@ -53,6 +54,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (lines.length === 0) {
     return NextResponse.json({ error: "Add at least one journal line." }, { status: 400 });
   }
+  // Same reasoning as the POST route above — see validateJournalLineRefs' comment in tenant-guard.ts.
+  const refError = await validateJournalLineRefs(lines, ctx.orgId);
+  if (refError) return NextResponse.json({ error: refError }, { status: 400 });
+
   const journalDate = body.header?.journal_date || null;
   const reverseDate = body.header?.reverse_journal_date || null;
   if (reverseDate && journalDate && reverseDate < journalDate) {

@@ -10,6 +10,7 @@ import {
   ShoppingCart,
   Plug,
   Percent,
+  History,
 } from "lucide-react";
 
 export interface SettingsItem {
@@ -21,7 +22,6 @@ export interface SettingsItem {
     | "company-profile"
     | "users-list"
     | "branding"
-    | "roles-list"
     | "tax-settings"
     | "tax-rates-list"
     | "tax-preferences"
@@ -32,8 +32,11 @@ export interface SettingsItem {
     | "api-keys"
     | "number-series"
     | "opening-balances"
-    | "email-smtp"
-    | "file-storage";
+    | "email-settings"
+    | "file-storage"
+    | "general-info"
+    | "audit-logs"
+    | "api-usage";
 }
 
 export interface SettingsGroup {
@@ -66,7 +69,6 @@ export const settingsGroups: SettingsGroup[] = [
     section: "organization",
     items: [
       { slug: "users", label: "Users", description: "Everyone with access to this organization.", view: "users-list" },
-      { slug: "roles", label: "Roles and Permissions", description: "Define what each role can see and do.", view: "roles-list" },
       { slug: "user-preferences", label: "User Preferences", description: "Personal display and notification preferences." },
     ],
   },
@@ -119,7 +121,7 @@ export const settingsGroups: SettingsGroup[] = [
     icon: SlidersHorizontal,
     section: "organization",
     items: [
-      { slug: "general", label: "General", description: "Date format, time zone and organization defaults." },
+      { slug: "general", label: "General", description: "Your plan, user and API limits, and organization defaults.", view: "general-info" },
       { slug: "currencies", label: "Currencies", description: "Currencies you transact in and exchange rates.", view: "currencies-list" },
       { slug: "payment-terms", label: "Payment Terms", description: "Default due-date terms for invoices and bills.", view: "payment-terms-list" },
       { slug: "opening-balances", label: "Opening Balances", description: "Starting balances when you switched to NeoAccountingZ.", view: "opening-balances" },
@@ -201,13 +203,38 @@ export const settingsGroups: SettingsGroup[] = [
     ],
   },
   {
+    // Requested directly by the account owner: a place to see who changed what (Audit Logs,
+    // Owner/Admin only — gated inside the page itself, same pattern as every other
+    // canManage-gated settings view in this file) and a consolidated view of third-party API
+    // usage (reusing the existing api_keys.request_count/last_used_at and api_usage_daily
+    // counters rather than a new per-request log table).
+    slug: "usages",
+    label: "Usages",
+    icon: History,
+    section: "organization",
+    items: [
+      {
+        slug: "audit-logs",
+        label: "Audit Logs",
+        description: "Who created, changed or deleted records, and what changed. Owner and Admin only.",
+        view: "audit-logs",
+      },
+      {
+        slug: "api-usage",
+        label: "API Usage",
+        description: "Request activity for your API keys, and today's usage against your daily limit.",
+        view: "api-usage",
+      },
+    ],
+  },
+  {
     slug: "integrations",
     label: "Integrations",
     icon: Plug,
     section: "module",
     items: [
       { slug: "api-keys", label: "API Keys", description: "Generate keys so third-party systems can send invoices, receipts, customers and sales orders over REST.", view: "api-keys" },
-      { slug: "email-smtp", label: "Email (SMTP)", description: "Connect your mail server so invoices, receipts and other emails send from your own address.", view: "email-smtp" },
+      { slug: "email", label: "Email Settings", description: "Connect SMTP, SendGrid, or AWS SES so invoices, receipts and other emails send from your own address — one provider active at a time.", view: "email-settings" },
       { slug: "file-storage", label: "File Storage (S3)", description: "Connect an S3 bucket so file attachments across every module are stored there.", view: "file-storage" },
       { slug: "whatsapp", label: "WhatsApp", description: "Send invoices, reminders and receipts over WhatsApp." },
       { slug: "sms", label: "SMS", description: "Send payment reminders and alerts over SMS." },

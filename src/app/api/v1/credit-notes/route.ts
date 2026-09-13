@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getApiKeyContext, apiUnauthorized } from "@/lib/api-context";
+import { getApiKeyContext, apiUnauthorized, checkApiRequestLimit } from "@/lib/api-context";
 import { listCreditOrDebitNotes, createCreditOrDebitNote, getCreditOrDebitNote, NoteLineInput } from "@/lib/credit-debit-notes-api";
 import { getDisabledFields, filterConfigurableFields } from "@/lib/api-field-config";
 
@@ -16,11 +16,15 @@ import { getDisabledFields, filterConfigurableFields } from "@/lib/api-field-con
 //     reference_number?: "...",
 //     reason?: "...",
 //     taxPercent?: 5,
+//     legal_entity_id?: "...", // API-only — no field for this in the app's own credit-memo UI
+//                               // (see migrations/1779000000000_legal_entity_on_documents.js)
 //     lines: [ { item_id?: "...", description: "...", quantity: 1, rate: 100 }, ... ]
 //   }
 export async function GET(req: NextRequest) {
   const ctx = await getApiKeyContext(req);
   if (!ctx) return apiUnauthorized();
+  const limitError = await checkApiRequestLimit(ctx.orgId);
+  if (limitError) return limitError;
 
   const notes = await listCreditOrDebitNotes("credit", ctx.orgId);
   return NextResponse.json({ data: notes });
@@ -29,6 +33,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const ctx = await getApiKeyContext(req);
   if (!ctx) return apiUnauthorized();
+  const limitError = await checkApiRequestLimit(ctx.orgId);
+  if (limitError) return limitError;
 
   const rawBody = await req.json().catch(() => ({}));
   const disabled = await getDisabledFields(ctx.orgId, "credit-notes", "create");
@@ -37,13 +43,20 @@ export async function POST(req: NextRequest) {
   if (!invoiceId) return NextResponse.json({ error: "invoice_id is required." }, { status: 400 });
 
   const lines: NoteLineInput[] = Array.isArray(body.lines) ? body.lines : [];
-  const result = await createCreditOrDebitNote("credit", ctx.orgId, invoiceId, {
-    note_date: body.note_date as string | undefined,
-    reference_number: body.reference_number as string | undefined,
-    reason: body.reason as string | undefined,
-    taxPercent: body.taxPercent as number | undefined,
-    lines,
-  });
+  const result = await createCreditOrDebitNote(
+    "credit",
+    ctx.orgId,
+    invoiceId,
+    {
+      note_date: body.note_date as string | undefined,
+      reference_number: body.reference_number as string | undefined,
+      reason: body.reason as string | undefined,
+      taxPercent: body.taxPercent as number | undefined,
+      legal_entity_id: body.legal_entity_id as string | undefined,
+      lines,
+    },
+    { apiKeyId: ctx.apiKeyId }
+  );
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
   // Return the full created note (including organization_id, now selected here too — see
   // getCreditOrDebitNote), matching the shape every other create endpoint in this API returns.

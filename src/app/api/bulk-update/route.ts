@@ -3,6 +3,7 @@ import { pool } from "@/lib/db";
 import { getEntity } from "@/lib/entities";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
 import { moduleAccessErrorResponse } from "@/lib/module-access";
+import { idBelongsToOrg } from "@/lib/tenant-guard";
 
 const ALLOWED_ENTITIES = ["items", "customers", "vendors"];
 
@@ -39,6 +40,17 @@ export async function POST(req: NextRequest) {
   let coerced: unknown = value;
   if (fieldDef.type === "boolean") coerced = value === true || value === "true";
   if (fieldDef.type === "number" || fieldDef.type === "currency") coerced = parseFloat(String(value)) || 0;
+
+  // A bulk-set value into a refEntity-typed field (e.g. Customers' Accounts Receivable
+  // Account) must belong to this same org — same reasoning as validateRefFields in crud.ts,
+  // which this route bypasses since it builds its own UPDATE rather than going through
+  // createRow/updateRow.
+  if (fieldDef.type === "select" && fieldDef.refEntity && fieldDef.refEntity !== "organizations" && coerced) {
+    const refEntity = getEntity(fieldDef.refEntity);
+    if (refEntity && !(await idBelongsToOrg(refEntity.table, coerced, ctx.orgId))) {
+      return NextResponse.json({ error: `Select a valid ${fieldDef.label}.` }, { status: 400 });
+    }
+  }
 
   const result = await pool.query(
     `UPDATE ${entity.table} SET ${field} = $1 WHERE organization_id = $2 AND id = ANY($3::uuid[])`,

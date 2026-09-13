@@ -5,6 +5,7 @@ import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { defaultFiscalYearRange } from "@/lib/report-dates";
+import { loadProjectUnitOptions, normalizeFilterId } from "@/lib/report-filters";
 import ReportDateRangeBar from "@/components/reports/ReportDateRangeBar";
 
 interface Row {
@@ -24,7 +25,7 @@ interface Row {
 export default async function ReceivableSummaryPage({
   searchParams,
 }: {
-  searchParams: { from?: string; to?: string };
+  searchParams: { from?: string; to?: string; projectId?: string; unitId?: string };
 }) {
   const ctx = await requireActiveContext();
   await requireModuleAccess(ctx, "reports", "view");
@@ -35,29 +36,41 @@ export default async function ReceivableSummaryPage({
   const defaults = defaultFiscalYearRange(org?.fiscal_year_start);
   const from = searchParams.from || defaults.from;
   const to = searchParams.to || defaults.to;
+  const projectId = normalizeFilterId(searchParams.projectId);
+  const unitId = normalizeFilterId(searchParams.unitId);
+  const { projects, units } = await loadProjectUnitOptions(ctx.orgId);
+  const filtered = Boolean(projectId || unitId);
 
   const rows = await query<Row>(
     `SELECT c.id, c.display_name, c.opening_balance,
             COALESCE((
               SELECT SUM(i.total) FROM invoices i
               WHERE i.customer_id = c.id AND i.status NOT IN ('draft', 'void') AND i.invoice_date BETWEEN $2 AND $3
+                AND ($4::uuid IS NULL OR i.project_id = $4::uuid)
+                AND ($5::uuid IS NULL OR i.unit_id = $5::uuid)
             ), 0) AS invoiced_amount,
             COALESCE((
               SELECT SUM(p.amount) FROM payments_received p
               WHERE p.customer_id = c.id AND p.status != 'draft' AND p.payment_date BETWEEN $2 AND $3
+                AND ($4::uuid IS NULL OR p.project_id = $4::uuid)
+                AND ($5::uuid IS NULL OR p.unit_id = $5::uuid)
             ), 0) AS amount_received,
             COALESCE((
               SELECT SUM(i.balance_due) FROM invoices i
               WHERE i.customer_id = c.id AND i.status NOT IN ('draft', 'void') AND i.invoice_date <= $3
+                AND ($4::uuid IS NULL OR i.project_id = $4::uuid)
+                AND ($5::uuid IS NULL OR i.unit_id = $5::uuid)
             ), 0) AS balance
      FROM customers c
      WHERE c.organization_id = $1
      ORDER BY c.display_name`,
-    [ctx.orgId, from, to]
+    [ctx.orgId, from, to, projectId, unitId]
   );
 
+  // Opening Balance is a customer-level lump sum, not tied to any Project/Unit — excluded from
+  // closingBalance whenever a filter is active (see Customer Balance Summary for the same rule).
   const active = rows
-    .map((r) => ({ ...r, closingBalance: Number(r.opening_balance) + Number(r.balance) }))
+    .map((r) => ({ ...r, closingBalance: (filtered ? 0 : Number(r.opening_balance)) + Number(r.balance) }))
     .filter((r) => Number(r.invoiced_amount) !== 0 || Number(r.amount_received) !== 0 || Math.abs(r.closingBalance) > 0.005)
     .sort((a, b) => Number(b.invoiced_amount) - Number(a.invoiced_amount));
 
@@ -77,7 +90,7 @@ export default async function ReceivableSummaryPage({
         </p>
       </div>
 
-      <ReportDateRangeBar from={from} to={to} />
+      <ReportDateRangeBar from={from} to={to} projectId={projectId} unitId={unitId} projects={projects} units={units} />
 
       <div className="p-6">
         <div className="card overflow-hidden">
@@ -126,7 +139,16 @@ export default async function ReceivableSummaryPage({
         </div>
         <p className="mt-3 text-xs text-gray-400">
           Invoiced Amount and Amount Received reflect activity within the selected period. Balance is each
-          customer&apos;s current outstanding balance as of {formatDate(to)}, including their Opening Balance.
+          customer&apos;s current outstanding balance as of {formatDate(to)}
+          {filtered ? "" : ", including their Opening Balance"}.
+          {filtered && (
+            <>
+              {" "}
+              Filtered by Project/Unit: Opening Balances aren&apos;t tied to a Project or Unit, so they&apos;re
+              excluded from Balance while this filter is active (switch back to All Projects/All Units to include
+              them).
+            </>
+          )}
         </p>
       </div>
     </div>

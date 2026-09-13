@@ -42,6 +42,9 @@ interface InvoiceData {
   total: number;
   balanceDue: number;
   notes: string | null;
+  /** External CRM system's own reference number for this invoice
+   * (migrations/1776000000000_crm_reference_numbers.js). */
+  crmInvNo: string | null;
 }
 
 interface CustomerData {
@@ -368,6 +371,15 @@ export default function InvoiceDetailView({
                     </Link>
                   </div>
                 )}
+              </div>
+            )}
+
+            {invoice.crmInvNo && (
+              <div className="mt-4 flex flex-wrap gap-6 border-t border-gray-100 pt-4 text-sm">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">CRM Inv No</p>
+                  <p className="text-ink-700">{invoice.crmInvNo}</p>
+                </div>
               </div>
             )}
 

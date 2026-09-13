@@ -4,6 +4,7 @@ import { getApiOrgContext, unauthorized } from "@/lib/api-context";
 import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { extractHeaderValues, type CustomerHeaderInput, type ContactPersonInput } from "@/lib/customers";
 import { syncOpeningBalanceJournal } from "@/lib/auto-journal";
+import { recordAuditLog } from "@/lib/audit-log";
 
 interface Body {
   header: CustomerHeaderInput;
@@ -53,7 +54,24 @@ export async function POST(req: NextRequest) {
     // journal's Accounts Receivable line — rebuild it so the GL reflects this customer too.
     await syncOpeningBalanceJournal(client, ctx.orgId);
 
+    // Customers have no shared crud.ts/documents-api.ts path (fully bespoke, unlike v1
+    // customers which does go through crud.ts) — capture the full row now, on this still-open
+    // transactional client, so the audit write after COMMIT has an accurate new_data snapshot.
+    const auditNewRow = (await client.query(`SELECT * FROM customers WHERE id = $1`, [customerId])).rows[0];
+
     await client.query("COMMIT");
+
+    await recordAuditLog({
+      orgId: ctx.orgId,
+      actor: { userId: ctx.userId },
+      action: "create",
+      module: "customers",
+      entityId: customerId,
+      entityLabel: displayName,
+      oldData: null,
+      newData: auditNewRow ?? null,
+    });
+
     return NextResponse.json({ id: customerId }, { status: 201 });
   } catch (err) {
     await client.query("ROLLBACK");

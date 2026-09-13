@@ -5,6 +5,7 @@ import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { defaultFiscalYearRange } from "@/lib/report-dates";
+import { loadProjectUnitOptions, normalizeFilterId } from "@/lib/report-filters";
 import ReportDateRangeBar from "@/components/reports/ReportDateRangeBar";
 
 interface Row {
@@ -14,7 +15,11 @@ interface Row {
   amount: string;
 }
 
-export default async function SalesByItemPage({ searchParams }: { searchParams: { from?: string; to?: string } }) {
+export default async function SalesByItemPage({
+  searchParams,
+}: {
+  searchParams: { from?: string; to?: string; projectId?: string; unitId?: string };
+}) {
   const ctx = await requireActiveContext();
   await requireModuleAccess(ctx, "reports", "view");
   const org = await queryOne<{ fiscal_year_start: string | null }>(
@@ -24,6 +29,9 @@ export default async function SalesByItemPage({ searchParams }: { searchParams: 
   const defaults = defaultFiscalYearRange(org?.fiscal_year_start);
   const from = searchParams.from || defaults.from;
   const to = searchParams.to || defaults.to;
+  const projectId = normalizeFilterId(searchParams.projectId);
+  const unitId = normalizeFilterId(searchParams.unitId);
+  const { projects, units } = await loadProjectUnitOptions(ctx.orgId);
 
   const rows = await query<Row>(
     `SELECT it.id AS item_id, COALESCE(it.name, ii.description) AS item_name, SUM(ii.quantity) AS quantity, SUM(ii.amount) AS amount
@@ -31,9 +39,11 @@ export default async function SalesByItemPage({ searchParams }: { searchParams: 
      JOIN invoices i ON i.id = ii.invoice_id
      LEFT JOIN items it ON it.id = ii.item_id
      WHERE i.organization_id = $1 AND i.status NOT IN ('draft', 'void') AND i.invoice_date BETWEEN $2 AND $3
+       AND ($4::uuid IS NULL OR i.project_id = $4::uuid)
+       AND ($5::uuid IS NULL OR i.unit_id = $5::uuid)
      GROUP BY it.id, COALESCE(it.name, ii.description)
      ORDER BY SUM(ii.amount) DESC`,
-    [ctx.orgId, from, to]
+    [ctx.orgId, from, to, projectId, unitId]
   );
   const grandTotal = rows.reduce((sum, r) => sum + Number(r.amount), 0);
 
@@ -49,7 +59,7 @@ export default async function SalesByItemPage({ searchParams }: { searchParams: 
         </p>
       </div>
 
-      <ReportDateRangeBar from={from} to={to} />
+      <ReportDateRangeBar from={from} to={to} projectId={projectId} unitId={unitId} projects={projects} units={units} />
 
       <div className="p-6">
         <div className="card overflow-hidden">

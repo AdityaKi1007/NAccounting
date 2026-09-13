@@ -24,6 +24,13 @@ export interface DocumentConfig {
    * document type have a richer dedicated form (see SalesOrderForm.tsx) while still going
    * through the same createDocument/updateDocument transaction as every other document type. */
   extraHeaderFields?: string[];
+  /** Of the extraHeaderFields above, the subset that are actually foreign-key references
+   * (rather than plain text like salesperson/reference_number) — mapped to the entity
+   * registry key they point to, so createDocument/updateDocument can re-validate a submitted
+   * value belongs to the caller's own org before writing it (see documents-api.ts and
+   * tenant-guard.ts). Every FK-type extraHeaderField must be listed here or it's written
+   * unchecked. */
+  extraHeaderFieldRefs?: Record<string, string>;
   /** itemsTable has a discount_percent column; amount = qty * rate * (1 - discount/100). */
   hasLineDiscount?: boolean;
   /** Key into the org's number_series preferences (src/lib/number-series.ts) for a real,
@@ -78,7 +85,19 @@ export const documentConfigs: Record<string, DocumentConfig> = {
     // present in the PATCH body — see documents-api.ts). "project_id"/"unit_id" are the new
     // optional Property Master tags — DocumentForm.tsx renders real selects for these two
     // (unlike sales_order_id) and submits them like salesperson.
-    extraHeaderFields: ["salesperson", "sales_order_id", "project_id", "unit_id"],
+    // "crm_inv_no" — external CRM system's own reference number for this invoice
+    // (migrations/1776000000000_crm_reference_numbers.js), plain text like salesperson.
+    // "legal_entity_id" — API-only (deliberately, per the request that added it — see
+    // migrations/1779000000000_legal_entity_on_documents.js): like sales_order_id, there is no
+    // input for it anywhere in DocumentForm.tsx, so it can only ever be set/changed through
+    // /api/v1/invoices' own create/update, never through the app's own UI.
+    extraHeaderFields: ["salesperson", "sales_order_id", "project_id", "unit_id", "crm_inv_no", "legal_entity_id"],
+    extraHeaderFieldRefs: {
+      sales_order_id: "sales-orders",
+      project_id: "projects",
+      unit_id: "inventory",
+      legal_entity_id: "legal-entities",
+    },
   },
   bills: {
     key: "bills",
@@ -121,7 +140,14 @@ export const documentConfigs: Record<string, DocumentConfig> = {
       "terms_conditions",
       "project_id",
       "unit_id",
+      // External CRM system's own reference number for this sales order
+      // (migrations/1776000000000_crm_reference_numbers.js), plain text like salesperson.
+      "crm_so_no",
+      // API-only, same reasoning as invoices' own legal_entity_id above — no input for it in
+      // SalesOrderForm.tsx, so /api/v1/sales-orders' create/update is the only way to set it.
+      "legal_entity_id",
     ],
+    extraHeaderFieldRefs: { project_id: "projects", unit_id: "inventory", legal_entity_id: "legal-entities" },
     hasLineDiscount: true,
     numberSeriesKey: "sales-orders",
   },

@@ -73,6 +73,7 @@ export const nav: NavItem[] = [
       { label: "Projects", href: "/projects" },
       { label: "Buildings", href: "/buildings" },
       { label: "Units", href: "/inventory" },
+      { label: "Legal Entities", href: "/legal-entities" },
     ],
   },
   {

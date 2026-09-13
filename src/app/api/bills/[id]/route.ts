@@ -21,7 +21,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (accessError) return accessError;
 
   const body: BillBody = await req.json().catch(() => ({}) as BillBody);
-  const result = await updateBill(ctx.orgId, params.id, body);
+  const result = await updateBill(ctx.orgId, params.id, body, { userId: ctx.userId });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
   return NextResponse.json({ id: result.id });
 }

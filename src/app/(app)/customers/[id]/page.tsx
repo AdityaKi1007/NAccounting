@@ -30,6 +30,7 @@ interface CustomerRow {
   is_active: boolean;
   remarks: string | null;
   opening_balance: number | string;
+  crm_customer_no: string | null;
   created_at: string;
 }
 
@@ -222,7 +223,7 @@ export default async function CustomerDetailPage({ params }: { params: { id: str
   const customer = await queryOne<CustomerRow>(
     `SELECT id, customer_type, display_name, secondary_display_name, company_name, email, work_phone, mobile,
             language, currency, billing_address, shipping_address, payment_terms, portal_enabled, is_active,
-            remarks, opening_balance, created_at
+            remarks, opening_balance, crm_customer_no, created_at
      FROM customers WHERE id = $1 AND organization_id = $2`,
     [params.id, ctx.orgId]
   );
@@ -485,6 +486,7 @@ export default async function CustomerDetailPage({ params }: { params: { id: str
             <Field label="Portal Status" value={customer.portal_enabled ? "Enabled" : "Disabled"} />
             <Field label="Customer Language" value={customer.language} />
             <Field label="Payment Terms" value={paymentTermsLabel} />
+            <Field label="CRM Customer No" value={customer.crm_customer_no || "-"} />
           </div>
         </div>
 

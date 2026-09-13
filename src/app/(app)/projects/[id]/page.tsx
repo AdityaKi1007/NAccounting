@@ -22,6 +22,8 @@ interface ProjectRow {
   project_address: string | null;
   country: string | null;
   city: string | null;
+  legal_entity_id: string | null;
+  legal_entity_name: string | null;
 }
 
 interface BuildingRow {
@@ -54,9 +56,10 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
   const project = await queryOne<ProjectRow>(
     `SELECT p.id, p.name, o.name AS organization_name, p.code, p.rera_project_name, p.status, p.plot_area,
             p.project_arabic_name, p.rera_number, p.estimated_completion_date, p.completion_date,
-            p.description, p.project_address, p.country, p.city
+            p.description, p.project_address, p.country, p.city, p.legal_entity_id, le.entity_name AS legal_entity_name
      FROM projects p
      JOIN organizations o ON o.id = p.organization_id
+     LEFT JOIN legal_entities le ON le.id = p.legal_entity_id
      WHERE p.id = $1 AND p.organization_id = $2`,
     [params.id, ctx.orgId]
   );
@@ -92,6 +95,19 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Field label="Organization" value={project.organization_name} />
             <Field label="Code" value={project.code} />
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Legal Entity</p>
+              {project.legal_entity_id ? (
+                <Link
+                  href={`/legal-entities/${project.legal_entity_id}`}
+                  className="mt-0.5 block text-sm text-brand-600 hover:underline"
+                >
+                  {project.legal_entity_name || "-"}
+                </Link>
+              ) : (
+                <p className="mt-0.5 text-sm text-ink-700">-</p>
+              )}
+            </div>
             <Field label="Rera Project Name" value={project.rera_project_name} />
             <Field label="Rera Number" value={project.rera_number} />
             <Field label="Plot Area" value={project.plot_area != null ? String(project.plot_area) : null} />

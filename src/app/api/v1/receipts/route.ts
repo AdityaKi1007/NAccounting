@@ -1,17 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getApiKeyContext, apiUnauthorized } from "@/lib/api-context";
+import { getApiKeyContext, apiUnauthorized, checkApiRequestLimit } from "@/lib/api-context";
 import { listReceipts, createReceipt, getReceipt, type ReceiptBody } from "@/lib/receipts-api";
 import { getDisabledFields, filterConfigurableFields } from "@/lib/api-field-config";
 
 // "Receipts" == Payments Received. Body shape for POST:
 //   { customer_id, amount, bank_account_id, payment_date?, payment_mode?, reference_number?,
-//     notes?, status?: "draft"|"paid", allocations?: [{ invoice_id, amount }] }
+//     notes?, status?: "draft"|"paid", allocations?: [{ invoice_id, amount }],
+//     legal_entity_id? }
 // Allocations apply the payment to specific invoices' balance_due; omit to record an
 // unapplied receipt (Zoho's "excess payment"). amount/allocations/status can't be changed
-// afterwards through this API — see PATCH /api/v1/receipts/{id}.
+// afterwards through this API — see PATCH /api/v1/receipts/{id}. legal_entity_id IS supported
+// on that PATCH (unlike project_id/unit_id) — API-only, no field for it in the Record Payment
+// form itself (see migrations/1779000000000_legal_entity_on_documents.js).
 export async function GET(req: NextRequest) {
   const ctx = await getApiKeyContext(req);
   if (!ctx) return apiUnauthorized();
+  const limitError = await checkApiRequestLimit(ctx.orgId);
+  if (limitError) return limitError;
 
   const { searchParams } = new URL(req.url);
   const limit = searchParams.get("limit") ? Number(searchParams.get("limit")) : undefined;
@@ -24,11 +29,13 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const ctx = await getApiKeyContext(req);
   if (!ctx) return apiUnauthorized();
+  const limitError = await checkApiRequestLimit(ctx.orgId);
+  if (limitError) return limitError;
 
   const rawBody: ReceiptBody = await req.json().catch(() => ({}) as ReceiptBody);
   const disabled = await getDisabledFields(ctx.orgId, "receipts", "create");
   const body = filterConfigurableFields("receipts", "create", rawBody as unknown as Record<string, unknown>, disabled) as ReceiptBody;
-  const result = await createReceipt(ctx.orgId, body);
+  const result = await createReceipt(ctx.orgId, body, { apiKeyId: ctx.apiKeyId });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
   // Return the full created receipt (not just the id) — its header includes
   // organization_id, so a caller can confirm which tenant the record landed in, matching

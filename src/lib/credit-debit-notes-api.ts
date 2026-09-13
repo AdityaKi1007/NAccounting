@@ -1,6 +1,8 @@
 import { pool, queryOne } from "@/lib/db";
 import { getOrCreateNumberSeries, claimNextNumber } from "@/lib/number-series";
 import { syncCreditNoteJournal, syncDebitNoteJournal } from "@/lib/auto-journal";
+import { idBelongsToOrg, idsBelongToOrg } from "@/lib/tenant-guard";
+import { recordAuditLog, type AuditActor } from "@/lib/audit-log";
 
 // Credit Notes and Debit Notes are always created FROM one specific invoice (there's no
 // standalone "+ New Credit Note" flow that isn't tied to an invoice — a deliberate scope
@@ -24,6 +26,12 @@ export interface NoteBody {
   reason?: string;
   lines: NoteLineInput[];
   taxPercent?: number;
+  /** API-only (see migrations/1779000000000_legal_entity_on_documents.js) — there is no field
+   * for this in the app's own credit-memo UI. Create-only, same as every other credit-memo
+   * field: credit_notes has no v1 update endpoint at all (see
+   * /api/v1/credit-notes/[id]/route.ts's own comment), and the column only exists on
+   * credit_notes, not debit_notes, so this is only ever written when kind === "credit". */
+  legal_entity_id?: string | null;
 }
 
 export interface NoteActionResult {
@@ -52,9 +60,13 @@ export async function listCreditOrDebitNotes(kind: "credit" | "debit", orgId: st
   const table = kind === "credit" ? "credit_notes" : "debit_notes";
   const dateField = kind === "credit" ? "credit_note_date" : "debit_note_date";
   const numberField = kind === "credit" ? "credit_note_number" : "debit_note_number";
+  // legal_entity_id only exists on credit_notes (see
+  // migrations/1779000000000_legal_entity_on_documents.js) — selected as a literal null for
+  // debit notes so both kinds return the same column shape.
+  const legalEntityColumn = kind === "credit" ? "legal_entity_id" : "NULL AS legal_entity_id";
   const result = await pool.query(
     `SELECT id, organization_id, ${numberField} AS number, customer_id, invoice_id, ${dateField} AS note_date, status,
-            subtotal, tax_total, total, balance_applied, reference_number, reason, created_at
+            subtotal, tax_total, total, balance_applied, reference_number, reason, created_at, ${legalEntityColumn}
        FROM ${table} WHERE organization_id = $1 ORDER BY created_at DESC`,
     [orgId]
   );
@@ -69,10 +81,11 @@ export async function getCreditOrDebitNote(kind: "credit" | "debit", orgId: stri
   const parentField = kind === "credit" ? "credit_note_id" : "debit_note_id";
   const dateField = kind === "credit" ? "credit_note_date" : "debit_note_date";
   const numberField = kind === "credit" ? "credit_note_number" : "debit_note_number";
+  const legalEntityColumn = kind === "credit" ? "legal_entity_id" : "NULL AS legal_entity_id";
 
   const header = await queryOne<Record<string, unknown>>(
     `SELECT id, organization_id, ${numberField} AS number, customer_id, invoice_id, ${dateField} AS note_date, status,
-            subtotal, tax_total, total, balance_applied, reference_number, reason, created_at
+            subtotal, tax_total, total, balance_applied, reference_number, reason, created_at, ${legalEntityColumn}
        FROM ${table} WHERE id = $1 AND organization_id = $2`,
     [noteId, orgId]
   );
@@ -92,11 +105,19 @@ export async function createCreditOrDebitNote(
   kind: "credit" | "debit",
   orgId: string,
   invoiceId: string,
-  body: NoteBody
+  body: NoteBody,
+  actor: AuditActor = {}
 ): Promise<NoteActionResult> {
   const lines = (body.lines ?? []).filter((l) => (l.description || l.item_id) && Number(l.quantity) > 0);
   if (lines.length === 0) {
     return { ok: false, error: "Add at least one line item.", status: 400 };
+  }
+  const lineItemIds = [...new Set(lines.map((l) => l.item_id).filter((v): v is string => Boolean(v)))];
+  if (lineItemIds.length > 0 && !(await idsBelongToOrg("items", lineItemIds, orgId))) {
+    return { ok: false, error: "One or more selected items are invalid.", status: 400 };
+  }
+  if (kind === "credit" && body.legal_entity_id && !(await idBelongsToOrg("legal_entities", body.legal_entity_id, orgId))) {
+    return { ok: false, error: "Select a valid Legal Entity.", status: 400 };
   }
 
   const table = kind === "credit" ? "credit_notes" : "debit_notes";
@@ -163,10 +184,17 @@ export async function createCreditOrDebitNote(
     // `total`.
     const balanceApplied = round2(Math.abs(currentDue - newDue));
 
+    // legal_entity_id only exists on the credit_notes table (see
+    // migrations/1779000000000_legal_entity_on_documents.js) — debit_notes never got the
+    // column, since debit notes aren't part of the v1 API surface this was requested for —
+    // so it's appended to the column/value lists only when kind === "credit" rather than
+    // being a plain always-present column like the rest of this INSERT.
+    const legalEntityColumn = kind === "credit" ? ", legal_entity_id" : "";
+    const legalEntityPlaceholder = kind === "credit" ? ", $12" : "";
     const headerResult = await client.query(
       `INSERT INTO ${table}
-         (organization_id, ${numberField}, customer_id, invoice_id, ${dateField}, status, subtotal, tax_total, total, reference_number, reason, balance_applied)
-       VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8, $9, $10, $11)
+         (organization_id, ${numberField}, customer_id, invoice_id, ${dateField}, status, subtotal, tax_total, total, reference_number, reason, balance_applied${legalEntityColumn})
+       VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8, $9, $10, $11${legalEntityPlaceholder})
        RETURNING id`,
       [
         orgId,
@@ -180,6 +208,7 @@ export async function createCreditOrDebitNote(
         body.reference_number || null,
         body.reason || null,
         balanceApplied,
+        ...(kind === "credit" ? [body.legal_entity_id || null] : []),
       ]
     );
     const noteId = headerResult.rows[0].id as string;
@@ -212,7 +241,30 @@ export async function createCreditOrDebitNote(
       await syncDebitNoteJournal(client, orgId, noteId);
     }
 
+    // Debit Notes were never part of the audit-log request (only "credit memo" was) — see
+    // audit-log.ts's own comment for the full list of what's in/out of scope.
+    let auditNewRow: Record<string, unknown> | undefined;
+    if (kind === "credit") {
+      auditNewRow = (await client.query(`SELECT * FROM ${table} WHERE id = $1`, [noteId])).rows[0] as
+        | Record<string, unknown>
+        | undefined;
+    }
+
     await client.query("COMMIT");
+
+    if (kind === "credit") {
+      await recordAuditLog({
+        orgId,
+        actor,
+        action: "create",
+        module: "credit-notes",
+        entityId: noteId,
+        entityLabel: auditNewRow ? String(auditNewRow[numberField] ?? "") : null,
+        oldData: null,
+        newData: auditNewRow ?? null,
+      });
+    }
+
     return { ok: true, id: noteId };
   } catch (err) {
     await client.query("ROLLBACK");
@@ -236,12 +288,29 @@ export async function createCreditOrDebitNote(
  * createCreditOrDebitNote does (with a defensive clamp to [0, invoice total]), marks the note
  * void, and removes its GL journal. Safe to call even if the invoice was itself edited since
  * (the current balance_due is read fresh under lock, not assumed unchanged). */
-export async function voidCreditOrDebitNote(kind: "credit" | "debit", orgId: string, noteId: string): Promise<NoteActionResult> {
+export async function voidCreditOrDebitNote(
+  kind: "credit" | "debit",
+  orgId: string,
+  noteId: string,
+  actor: AuditActor = {}
+): Promise<NoteActionResult> {
   const table = kind === "credit" ? "credit_notes" : "debit_notes";
+  const numberField = kind === "credit" ? "credit_note_number" : "debit_note_number";
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
+    // SELECT * (not just the columns this function itself needs) so the full pre-void row is
+    // available as old_data for the audit log below — a plain SELECT alongside the typed one
+    // rather than widening the typed query, so every existing `note.<field>` reference below
+    // keeps its narrow, already-correct type.
+    const auditOldRow =
+      kind === "credit"
+        ? ((await client.query(`SELECT * FROM ${table} WHERE id = $1 AND organization_id = $2`, [noteId, orgId])).rows[0] as
+            | Record<string, unknown>
+            | undefined)
+        : undefined;
 
     const noteResult = await client.query<{
       id: string;
@@ -301,7 +370,28 @@ export async function voidCreditOrDebitNote(kind: "credit" | "debit", orgId: str
       await syncDebitNoteJournal(client, orgId, noteId);
     }
 
+    let auditNewRow: Record<string, unknown> | undefined;
+    if (kind === "credit") {
+      auditNewRow = (await client.query(`SELECT * FROM ${table} WHERE id = $1`, [noteId])).rows[0] as
+        | Record<string, unknown>
+        | undefined;
+    }
+
     await client.query("COMMIT");
+
+    if (kind === "credit") {
+      await recordAuditLog({
+        orgId,
+        actor,
+        action: "update",
+        module: "credit-notes",
+        entityId: noteId,
+        entityLabel: auditNewRow ? String(auditNewRow[numberField] ?? "") : null,
+        oldData: auditOldRow ?? null,
+        newData: auditNewRow ?? null,
+      });
+    }
+
     return { ok: true, id: noteId };
   } catch (err) {
     await client.query("ROLLBACK");

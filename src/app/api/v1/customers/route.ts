@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getApiKeyContext, apiUnauthorized } from "@/lib/api-context";
-import { listRows, createRow } from "@/lib/crud";
+import { getApiKeyContext, apiUnauthorized, checkApiRequestLimit } from "@/lib/api-context";
+import { listRows, createRow, validateRefFields } from "@/lib/crud";
 import { getDisabledFields, filterConfigurableFields } from "@/lib/api-field-config";
 
 // Body shape for POST/PATCH mirrors the "customers" entity fields in src/lib/entities.ts —
@@ -14,6 +14,8 @@ import { getDisabledFields, filterConfigurableFields } from "@/lib/api-field-con
 export async function GET(req: NextRequest) {
   const ctx = await getApiKeyContext(req);
   if (!ctx) return apiUnauthorized();
+  const limitError = await checkApiRequestLimit(ctx.orgId);
+  if (limitError) return limitError;
 
   const customers = await listRows("customers", ctx.orgId);
   return NextResponse.json({ data: customers });
@@ -22,6 +24,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const ctx = await getApiKeyContext(req);
   if (!ctx) return apiUnauthorized();
+  const limitError = await checkApiRequestLimit(ctx.orgId);
+  if (limitError) return limitError;
 
   const body = await req.json().catch(() => ({}));
   if (!body.display_name || typeof body.display_name !== "string" || !body.display_name.trim()) {
@@ -31,6 +35,9 @@ export async function POST(req: NextRequest) {
   const disabled = await getDisabledFields(ctx.orgId, "customers", "create");
   const filtered = filterConfigurableFields("customers", "create", body, disabled);
 
-  const row = await createRow("customers", ctx.orgId, filtered);
+  const refCheck = await validateRefFields("customers", ctx.orgId, filtered);
+  if (!refCheck.valid) return NextResponse.json({ error: refCheck.error }, { status: 400 });
+
+  const row = await createRow("customers", ctx.orgId, filtered, { apiKeyId: ctx.apiKeyId });
   return NextResponse.json({ data: row }, { status: 201 });
 }

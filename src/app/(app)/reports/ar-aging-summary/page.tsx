@@ -5,6 +5,7 @@ import { requireModuleAccess } from "@/lib/module-access";
 import { query } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { defaultAsOfDate } from "@/lib/report-dates";
+import { loadProjectUnitOptions, normalizeFilterId } from "@/lib/report-filters";
 import ReportAsOfBar from "@/components/reports/ReportAsOfBar";
 
 interface Row {
@@ -30,10 +31,17 @@ interface CustomerAging {
 // Unpaid/partially-paid invoices as of the given date, bucketed by how many days past their
 // due date they are. Invoices with no due date are treated as Current (not yet aged) — matches
 // Zoho's convention of aging strictly from the due date, not the invoice date.
-export default async function ARAgingSummaryPage({ searchParams }: { searchParams: { asOf?: string } }) {
+export default async function ARAgingSummaryPage({
+  searchParams,
+}: {
+  searchParams: { asOf?: string; projectId?: string; unitId?: string };
+}) {
   const ctx = await requireActiveContext();
   await requireModuleAccess(ctx, "reports", "view");
   const asOf = searchParams.asOf || defaultAsOfDate();
+  const projectId = normalizeFilterId(searchParams.projectId);
+  const unitId = normalizeFilterId(searchParams.unitId);
+  const { projects, units } = await loadProjectUnitOptions(ctx.orgId);
 
   const rows = await query<Row>(
     `SELECT c.id AS customer_id, c.display_name AS customer_name, i.id AS invoice_id, i.invoice_number,
@@ -42,8 +50,10 @@ export default async function ARAgingSummaryPage({ searchParams }: { searchParam
      LEFT JOIN customers c ON c.id = i.customer_id
      WHERE i.organization_id = $1 AND i.status NOT IN ('draft', 'void') AND i.balance_due > 0.005
        AND i.invoice_date <= $2
+       AND ($3::uuid IS NULL OR i.project_id = $3::uuid)
+       AND ($4::uuid IS NULL OR i.unit_id = $4::uuid)
      ORDER BY c.display_name NULLS LAST`,
-    [ctx.orgId, asOf]
+    [ctx.orgId, asOf, projectId, unitId]
   );
 
   const asOfDate = new Date(asOf + "T00:00:00Z");
@@ -105,7 +115,7 @@ export default async function ARAgingSummaryPage({ searchParams }: { searchParam
         <p className="mt-0.5 text-sm text-gray-500">As of {formatDate(asOf)}</p>
       </div>
 
-      <ReportAsOfBar asOf={asOf} />
+      <ReportAsOfBar asOf={asOf} projectId={projectId} unitId={unitId} projects={projects} units={units} />
 
       <div className="p-6">
         <div className="card overflow-x-auto">

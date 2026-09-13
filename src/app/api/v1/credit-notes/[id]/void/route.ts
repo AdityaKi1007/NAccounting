@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getApiKeyContext, apiUnauthorized } from "@/lib/api-context";
+import { getApiKeyContext, apiUnauthorized, checkApiRequestLimit } from "@/lib/api-context";
 import { voidCreditOrDebitNote, getCreditOrDebitNote } from "@/lib/credit-debit-notes-api";
 
 // POST /api/v1/credit-notes/{id}/void — this is the "unapplication" action for credit memos:
@@ -11,8 +11,10 @@ import { voidCreditOrDebitNote, getCreditOrDebitNote } from "@/lib/credit-debit-
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiKeyContext(_req);
   if (!ctx) return apiUnauthorized();
+  const limitError = await checkApiRequestLimit(ctx.orgId);
+  if (limitError) return limitError;
 
-  const result = await voidCreditOrDebitNote("credit", ctx.orgId, params.id);
+  const result = await voidCreditOrDebitNote("credit", ctx.orgId, params.id, { apiKeyId: ctx.apiKeyId });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
   // Return the full voided note, same reasoning as the create endpoint above.
   const note = await getCreditOrDebitNote("credit", ctx.orgId, result.id!);

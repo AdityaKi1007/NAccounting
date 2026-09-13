@@ -4,6 +4,7 @@ import { getApiOrgContext, unauthorized } from "@/lib/api-context";
 import { moduleAccessErrorResponse } from "@/lib/module-access";
 import { claimNextNumber } from "@/lib/number-series";
 import { syncJournalReversal } from "@/lib/journal-reversals";
+import { validateJournalLineRefs } from "@/lib/tenant-guard";
 
 interface Body {
   header: {
@@ -38,6 +39,14 @@ export async function POST(req: NextRequest) {
   if (lines.length === 0) {
     return NextResponse.json({ error: "Add at least one journal line." }, { status: 400 });
   }
+  // Manual journal entry is the one place in the app where a user types in a raw account_id
+  // (and, for a contact-tagged line, a customer/vendor contact_id) directly — every account
+  // referenced here must actually belong to this org, or a member of more than one
+  // organization (or a raw API call) could post into another organization's chart of
+  // accounts. See validateJournalLineRefs' own comment in tenant-guard.ts.
+  const refError = await validateJournalLineRefs(lines, ctx.orgId);
+  if (refError) return NextResponse.json({ error: refError }, { status: 400 });
+
   const journalDate = body.header?.journal_date || new Date().toISOString().slice(0, 10);
   const reverseDate = body.header?.reverse_journal_date || null;
   if (reverseDate && reverseDate < journalDate) {

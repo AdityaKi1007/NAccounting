@@ -54,21 +54,36 @@ async function findAccountId(
   return fallback.rowCount ? fallback.rows[0].id : null;
 }
 
-/** The GL account "behind" a bank account, creating and linking one on first use if it was
- * never set (covers bank accounts created before migrations/1758600000000_auto_journals.js,
- * or added by hand outside provisionOrganization). */
-async function getOrCreateBankGLAccount(client: PoolClient, orgId: string, bankAccountId: string): Promise<string | null> {
-  const bank = await client.query<{ id: string; account_name: string; gl_account_id: string | null }>(
-    `SELECT id, account_name, gl_account_id FROM bank_accounts WHERE id = $1 AND organization_id = $2`,
+/** The GL account "behind" a bank account, creating and linking one if it was never set —
+ * covers bank accounts created before migrations/1758600000000_auto_journals.js, or (before
+ * the Banking-list/GL-relation fix below) any bank account whose linking hadn't happened yet.
+ * Exported so it can also be called EAGERLY right after a bank account is created/edited via
+ * the generic entity routes (see bank-accounts handling in
+ * src/app/api/entities/[entity]/route.ts and [id]/route.ts) — not just lazily, the first time
+ * a payment/expense/refund needs to post against it. Calling this when gl_account_id is
+ * already set (whether auto-created earlier, or explicitly linked by the user to an EXISTING
+ * Chart of Accounts entry via the Banking module's "Link to Chart of Accounts" field — see
+ * bank-accounts.gl_account_id in entities.ts) is always a safe no-op, so every call site can
+ * call it unconditionally without checking first.
+ *
+ * The created account's detailed type matches the bank account's own account_type (bank vs.
+ * credit_card) rather than always 'cash' as before this fix — accountCategory() maps both to
+ * the same top-level category either way, so this only changes the type LABEL shown in Chart
+ * of Accounts, never balance-sign/category logic; nothing else in this file filters an
+ * account lookup by type: ["cash"], so the change is safe. */
+export async function getOrCreateBankGLAccount(client: PoolClient, orgId: string, bankAccountId: string): Promise<string | null> {
+  const bank = await client.query<{ id: string; account_name: string; account_type: string; gl_account_id: string | null }>(
+    `SELECT id, account_name, account_type, gl_account_id FROM bank_accounts WHERE id = $1 AND organization_id = $2`,
     [bankAccountId, orgId]
   );
   if (!bank.rowCount) return null;
   const row = bank.rows[0];
   if (row.gl_account_id) return row.gl_account_id;
 
+  const glType = row.account_type === "credit_card" ? "credit_card" : "bank";
   const created = await client.query<{ id: string }>(
-    `INSERT INTO accounts (organization_id, name, type) VALUES ($1, $2, 'cash') RETURNING id`,
-    [orgId, row.account_name]
+    `INSERT INTO accounts (organization_id, name, type) VALUES ($1, $2, $3) RETURNING id`,
+    [orgId, row.account_name, glType]
   );
   const glAccountId = created.rows[0].id;
   await client.query(`UPDATE bank_accounts SET gl_account_id = $1 WHERE id = $2`, [glAccountId, bankAccountId]);

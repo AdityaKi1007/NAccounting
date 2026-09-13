@@ -1,10 +1,11 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 
-// Symmetric encryption for secrets this app has to store recoverably — the SMTP password
-// and S3 secret access key an org enters on the new Email/File Storage settings pages (see
-// EmailSmtpSettingsForm.tsx/S3StorageSettingsForm.tsx and their API routes). These can't be
-// hashed the way api-keys.ts hashes API keys, since the app has to send the real plaintext
-// value to the SMTP server / AWS on every use, not just verify a match against it.
+// Symmetric encryption for secrets this app has to store recoverably — the SMTP password,
+// SendGrid API key, S3 secret access key, and AWS SES secret access key an org enters on the
+// Email Settings / File Storage settings pages (see EmailSettingsForm.tsx/S3StorageSettingsForm.tsx
+// and their API routes). These can't be hashed the way api-keys.ts hashes API keys, since the
+// app has to send the real plaintext value to the SMTP server / AWS on every use, not just
+// verify a match against it.
 //
 // Deliberately NOT a new required env var: the key is derived from AUTH_SECRET, which every
 // deployment of this app already has set (NextAuth won't start without it) — see

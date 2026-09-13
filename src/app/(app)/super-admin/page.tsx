@@ -1,6 +1,4 @@
-import { query } from "@/lib/db";
-import { requireSuperAdminPage } from "@/lib/super-admin";
-import type { SuperAdminOrgRow } from "@/app/api/super-admin/organizations/route";
+import { requireSuperAdminPage, fetchSuperAdminOrganizations } from "@/lib/super-admin";
 import SuperAdminOrgsTable from "@/components/super-admin/SuperAdminOrgsTable";
 
 // Platform-level panel — not org-scoped, so it deliberately bypasses requireActiveContext's
@@ -10,15 +8,7 @@ import SuperAdminOrgsTable from "@/components/super-admin/SuperAdminOrgsTable";
 export default async function SuperAdminPage() {
   await requireSuperAdminPage();
 
-  const organizations = await query<SuperAdminOrgRow>(
-    `SELECT o.id, o.name, o.org_seq, o.approval_status, o.approved_at, o.rejection_reason,
-            o.subscription_plan, o.max_users, o.disabled_modules, o.created_at,
-            (SELECT count(*)::int FROM memberships m WHERE m.organization_id = o.id) AS member_count,
-            (SELECT u.email FROM memberships m JOIN users u ON u.id = m.user_id
-             WHERE m.organization_id = o.id AND m.role = 'owner' ORDER BY m.created_at ASC LIMIT 1) AS owner_email
-     FROM organizations o
-     ORDER BY (o.approval_status = 'pending') DESC, o.created_at DESC`
-  );
+  const organizations = await fetchSuperAdminOrganizations();
 
   return (
     <div>

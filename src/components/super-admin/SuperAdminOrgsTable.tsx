@@ -6,7 +6,7 @@ import { ChevronDown, ChevronRight, Check, X, ShieldCheck, ShieldOff, ShieldAler
 import clsx from "clsx";
 import { formatDate, orgDisplayId } from "@/lib/format";
 import { GATEABLE_MODULES } from "@/lib/modules";
-import type { SuperAdminOrgRow } from "@/app/api/super-admin/organizations/route";
+import type { SuperAdminOrgRow } from "@/lib/super-admin";
 import type { SuperAdminMemberRow } from "@/app/api/super-admin/organizations/[id]/members/route";
 
 const PLANS = [
@@ -52,7 +52,16 @@ export default function SuperAdminOrgsTable({ initialOrganizations }: { initialO
   const [error, setError] = useState<string | null>(null);
   // Draft edits per org id, keyed so switching between rows doesn't lose unsaved state.
   const [drafts, setDrafts] = useState<
-    Record<string, { subscription_plan: string; max_users: string; disabled_modules: Set<string>; rejection_reason: string }>
+    Record<
+      string,
+      {
+        subscription_plan: string;
+        max_users: string;
+        api_request_limit_per_day: string;
+        disabled_modules: Set<string>;
+        rejection_reason: string;
+      }
+    >
   >({});
   // Members list per org id — fetched lazily the first time a row is expanded, so the panel
   // can show who's in the organization and let the Super Admin designate its Admin.
@@ -65,6 +74,7 @@ export default function SuperAdminOrgsTable({ initialOrganizations }: { initialO
       drafts[org.id] ?? {
         subscription_plan: org.subscription_plan,
         max_users: org.max_users == null ? "" : String(org.max_users),
+        api_request_limit_per_day: org.api_request_limit_per_day == null ? "" : String(org.api_request_limit_per_day),
         disabled_modules: new Set(org.disabled_modules),
         rejection_reason: org.rejection_reason ?? "",
       }
@@ -149,9 +159,15 @@ export default function SuperAdminOrgsTable({ initialOrganizations }: { initialO
   async function saveSettings(org: SuperAdminOrgRow) {
     const draft = draftFor(org);
     const maxUsers = draft.max_users.trim() === "" ? null : parseInt(draft.max_users, 10);
+    const apiRequestLimit =
+      draft.api_request_limit_per_day.trim() === "" ? null : parseInt(draft.api_request_limit_per_day, 10);
     const ok = await patchOrg(org.id, {
-      subscription_plan: draft.subscription_plan,
+      // Subscription Plan isn't offered for a Super Admin's own organization (see the hidden
+      // field above) — and the API itself now refuses that field for such an org — so it's
+      // left out of the payload entirely rather than resending an unchanged value.
+      ...(org.owner_is_super_admin ? {} : { subscription_plan: draft.subscription_plan }),
       max_users: maxUsers,
+      api_request_limit_per_day: apiRequestLimit,
       disabled_modules: Array.from(draft.disabled_modules),
     });
     if (ok) await refresh();
@@ -276,7 +292,7 @@ export default function SuperAdminOrgsTable({ initialOrganizations }: { initialO
                           </div>
                         )}
 
-                        {org.approval_status === "approved" && (
+                        {org.approval_status === "approved" && !org.owner_is_super_admin && (
                           <div className="flex justify-end">
                             <button
                               type="button"
@@ -289,20 +305,29 @@ export default function SuperAdminOrgsTable({ initialOrganizations }: { initialO
                           </div>
                         )}
 
-                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                          <div>
-                            <label className="label">Subscription Plan</label>
-                            <select
-                              className="input"
-                              value={draft.subscription_plan}
-                              onChange={(e) => updateDraft(org.id, { subscription_plan: e.target.value })}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {PLANS.map((p) => (
-                                <option key={p.value} value={p.value}>{p.label}</option>
-                              ))}
-                            </select>
-                          </div>
+                        {org.owner_is_super_admin && (
+                          <p className="text-xs text-gray-400">
+                            This organization is owned by a Super Admin — subscription plan and suspend controls
+                            don&apos;t apply here.
+                          </p>
+                        )}
+
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                          {!org.owner_is_super_admin && (
+                            <div>
+                              <label className="label">Subscription Plan</label>
+                              <select
+                                className="input"
+                                value={draft.subscription_plan}
+                                onChange={(e) => updateDraft(org.id, { subscription_plan: e.target.value })}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {PLANS.map((p) => (
+                                  <option key={p.value} value={p.value}>{p.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                           <div>
                             <label className="label">Max Users (blank = unlimited)</label>
                             <input
@@ -314,6 +339,22 @@ export default function SuperAdminOrgsTable({ initialOrganizations }: { initialO
                               onClick={(e) => e.stopPropagation()}
                               placeholder="Unlimited"
                             />
+                          </div>
+                          <div>
+                            <label className="label">API Request Limit (per day, blank = unlimited)</label>
+                            <input
+                              className="input"
+                              type="number"
+                              min={1}
+                              value={draft.api_request_limit_per_day}
+                              onChange={(e) => updateDraft(org.id, { api_request_limit_per_day: e.target.value })}
+                              onClick={(e) => e.stopPropagation()}
+                              placeholder="Unlimited"
+                            />
+                            <p className="mt-1 text-xs text-gray-400">
+                              Applies to this organization&apos;s /api/v1 requests. Shown read-only to their Admin
+                              under Settings → Configurations → General.
+                            </p>
                           </div>
                         </div>
 
