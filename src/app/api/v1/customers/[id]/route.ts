@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiKeyContext, apiUnauthorized } from "@/lib/api-context";
 import { getRow, updateRow } from "@/lib/crud";
+import { getDisabledFields, filterConfigurableFields } from "@/lib/api-field-config";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiKeyContext(_req);
@@ -19,6 +20,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
-  const row = await updateRow("customers", ctx.orgId, params.id, body);
+  const disabled = await getDisabledFields(ctx.orgId, "customers", "update");
+  const filtered = filterConfigurableFields("customers", "update", body, disabled);
+  const row = await updateRow("customers", ctx.orgId, params.id, filtered);
   return NextResponse.json({ data: row });
 }

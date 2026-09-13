@@ -43,6 +43,9 @@ export async function requireActiveContext(): Promise<ActiveContext> {
       `SELECT approval_status FROM organizations WHERE id = $1`,
       [active.organizationId]
     );
+    if (org && org.approval_status === "suspended") {
+      redirect("/account-suspended");
+    }
     if (org && org.approval_status !== "approved") {
       redirect("/pending-approval");
     }

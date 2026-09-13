@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiKeyContext, apiUnauthorized } from "@/lib/api-context";
-import { applyReceiptToInvoice } from "@/lib/receipts-api";
+import { applyReceiptToInvoice, getReceipt } from "@/lib/receipts-api";
 
 // POST /api/v1/receipts/{id}/apply — applies more of an already-recorded, Paid receipt to
 // one invoice. Body: { invoice_id, amount }. Use this for a receipt that was recorded with
@@ -17,5 +17,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const result = await applyReceiptToInvoice(ctx.orgId, params.id, invoiceId, amount);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
-  return NextResponse.json({ data: { id: result.id } });
+  // Return the full receipt (with its updated allocations), same reasoning as create/update.
+  const receipt = await getReceipt(ctx.orgId, result.id!);
+  return NextResponse.json({ data: receipt });
 }

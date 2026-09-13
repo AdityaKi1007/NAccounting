@@ -2,11 +2,12 @@
 
 import { useState, Fragment } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, Check, X, ShieldCheck } from "lucide-react";
+import { ChevronDown, ChevronRight, Check, X, ShieldCheck, ShieldOff, ShieldAlert, UserCog } from "lucide-react";
 import clsx from "clsx";
 import { formatDate, orgDisplayId } from "@/lib/format";
 import { GATEABLE_MODULES } from "@/lib/modules";
 import type { SuperAdminOrgRow } from "@/app/api/super-admin/organizations/route";
+import type { SuperAdminMemberRow } from "@/app/api/super-admin/organizations/[id]/members/route";
 
 const PLANS = [
   { value: "standard", label: "Standard" },
@@ -21,10 +22,24 @@ function StatusBadge({ status }: { status: string }) {
     approved: "bg-green-50 text-green-700",
     pending: "bg-amber-50 text-amber-700",
     rejected: "bg-red-50 text-red-700",
+    suspended: "bg-gray-200 text-gray-700",
   };
   return (
     <span className={clsx("inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize", styles[status] ?? "bg-gray-100 text-gray-600")}>
       {status}
+    </span>
+  );
+}
+
+function RoleBadge({ role }: { role: string }) {
+  const styles: Record<string, string> = {
+    owner: "bg-brand-50 text-brand-700",
+    admin: "bg-blue-50 text-blue-700",
+    staff: "bg-gray-100 text-gray-600",
+  };
+  return (
+    <span className={clsx("inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize", styles[role] ?? "bg-gray-100 text-gray-600")}>
+      {role}
     </span>
   );
 }
@@ -39,6 +54,11 @@ export default function SuperAdminOrgsTable({ initialOrganizations }: { initialO
   const [drafts, setDrafts] = useState<
     Record<string, { subscription_plan: string; max_users: string; disabled_modules: Set<string>; rejection_reason: string }>
   >({});
+  // Members list per org id — fetched lazily the first time a row is expanded, so the panel
+  // can show who's in the organization and let the Super Admin designate its Admin.
+  const [members, setMembers] = useState<Record<string, SuperAdminMemberRow[] | undefined>>({});
+  const [membersLoading, setMembersLoading] = useState<string | null>(null);
+  const [memberSaving, setMemberSaving] = useState<string | null>(null);
 
   function draftFor(org: SuperAdminOrgRow) {
     return (
@@ -55,10 +75,25 @@ export default function SuperAdminOrgsTable({ initialOrganizations }: { initialO
     setDrafts((prev) => ({ ...prev, [orgId]: { ...draftFor(organizations.find((o) => o.id === orgId)!), ...prev[orgId], ...patch } }));
   }
 
+  async function loadMembers(orgId: string) {
+    setMembersLoading(orgId);
+    try {
+      const res = await fetch(`/api/super-admin/organizations/${orgId}/members`);
+      if (res.ok) {
+        const data = await res.json();
+        setMembers((prev) => ({ ...prev, [orgId]: data.members }));
+      }
+    } finally {
+      setMembersLoading(null);
+    }
+  }
+
   function toggleExpand(org: SuperAdminOrgRow) {
     setError(null);
+    const willOpen = expanded !== org.id;
     setExpanded((prev) => (prev === org.id ? null : org.id));
     if (!drafts[org.id]) updateDraft(org.id, {});
+    if (willOpen && !members[org.id]) loadMembers(org.id);
   }
 
   async function patchOrg(orgId: string, body: Record<string, unknown>) {
@@ -101,6 +136,16 @@ export default function SuperAdminOrgsTable({ initialOrganizations }: { initialO
     if (ok) await refresh();
   }
 
+  async function suspend(org: SuperAdminOrgRow) {
+    const ok = await patchOrg(org.id, { approval_status: "suspended" });
+    if (ok) await refresh();
+  }
+
+  async function reactivate(org: SuperAdminOrgRow) {
+    const ok = await patchOrg(org.id, { approval_status: "approved" });
+    if (ok) await refresh();
+  }
+
   async function saveSettings(org: SuperAdminOrgRow) {
     const draft = draftFor(org);
     const maxUsers = draft.max_users.trim() === "" ? null : parseInt(draft.max_users, 10);
@@ -110,6 +155,27 @@ export default function SuperAdminOrgsTable({ initialOrganizations }: { initialO
       disabled_modules: Array.from(draft.disabled_modules),
     });
     if (ok) await refresh();
+  }
+
+  async function setMemberRole(org: SuperAdminOrgRow, membershipId: string, role: "admin" | "staff") {
+    setMemberSaving(membershipId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/super-admin/organizations/${org.id}/members/${membershipId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Something went wrong.");
+        return;
+      }
+      await loadMembers(org.id);
+      await refresh();
+    } finally {
+      setMemberSaving(null);
+    }
   }
 
   return (
@@ -131,6 +197,7 @@ export default function SuperAdminOrgsTable({ initialOrganizations }: { initialO
           {organizations.map((org) => {
             const isOpen = expanded === org.id;
             const draft = draftFor(org);
+            const orgMembers = members[org.id];
             return (
               <Fragment key={org.id}>
                 <tr
@@ -188,6 +255,36 @@ export default function SuperAdminOrgsTable({ initialOrganizations }: { initialO
                               className="ml-2 font-medium underline"
                             >
                               Approve instead
+                            </button>
+                          </div>
+                        )}
+
+                        {org.approval_status === "suspended" && (
+                          <div className="flex flex-wrap items-center gap-3 rounded-md border border-gray-300 bg-gray-100 px-4 py-3">
+                            <ShieldAlert size={16} className="text-gray-600" />
+                            <p className="flex-1 text-sm text-gray-700">
+                              This organization&apos;s account is suspended — its members can&apos;t sign in until it&apos;s reactivated.
+                            </p>
+                            <button
+                              type="button"
+                              disabled={saving === org.id}
+                              onClick={(e) => { e.stopPropagation(); reactivate(org); }}
+                              className="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-xs"
+                            >
+                              <Check size={13} /> Reactivate
+                            </button>
+                          </div>
+                        )}
+
+                        {org.approval_status === "approved" && (
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              disabled={saving === org.id}
+                              onClick={(e) => { e.stopPropagation(); suspend(org); }}
+                              className="flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100"
+                            >
+                              <ShieldOff size={13} /> Suspend Account
                             </button>
                           </div>
                         )}
@@ -277,6 +374,68 @@ export default function SuperAdminOrgsTable({ initialOrganizations }: { initialO
                           >
                             {saving === org.id ? "Saving..." : "Save Settings"}
                           </button>
+                        </div>
+
+                        <div className="border-t border-gray-200 pt-5">
+                          <div className="mb-2 flex items-center gap-1.5">
+                            <UserCog size={15} className="text-gray-500" />
+                            <p className="label mb-0">Members &amp; Admin</p>
+                          </div>
+                          <p className="mb-3 text-xs text-gray-500">
+                            Designate which member of this organization holds its Admin role. The org&apos;s own Owner
+                            or Admin can invite and manage members from their own Settings — this only changes who has
+                            that access.
+                          </p>
+                          {membersLoading === org.id && !orgMembers ? (
+                            <p className="text-sm text-gray-400">Loading members...</p>
+                          ) : !orgMembers || orgMembers.length === 0 ? (
+                            <p className="text-sm text-gray-400">No members yet.</p>
+                          ) : (
+                            <div className="overflow-hidden rounded-md border border-gray-200 bg-white">
+                              <table className="w-full text-left text-sm">
+                                <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                  <tr>
+                                    <th className="px-4 py-2">Name</th>
+                                    <th className="px-4 py-2">Email</th>
+                                    <th className="px-4 py-2">Role</th>
+                                    <th className="px-4 py-2 text-right">Action</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                  {orgMembers.map((m) => (
+                                    <tr key={m.membership_id}>
+                                      <td className="px-4 py-2 text-ink-700">{m.name}</td>
+                                      <td className="px-4 py-2 text-ink-700">{m.email}</td>
+                                      <td className="px-4 py-2"><RoleBadge role={m.role} /></td>
+                                      <td className="px-4 py-2 text-right">
+                                        {m.role === "owner" ? (
+                                          <span className="text-xs text-gray-400">-</span>
+                                        ) : m.role === "admin" ? (
+                                          <button
+                                            type="button"
+                                            disabled={memberSaving === m.membership_id}
+                                            onClick={(e) => { e.stopPropagation(); setMemberRole(org, m.membership_id, "staff"); }}
+                                            className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                                          >
+                                            {memberSaving === m.membership_id ? "Saving..." : "Remove Admin"}
+                                          </button>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            disabled={memberSaving === m.membership_id}
+                                            onClick={(e) => { e.stopPropagation(); setMemberRole(org, m.membership_id, "admin"); }}
+                                            className="rounded-md border border-brand-200 px-2.5 py-1 text-xs font-medium text-brand-600 hover:bg-brand-50"
+                                          >
+                                            {memberSaving === m.membership_id ? "Saving..." : "Make Admin"}
+                                          </button>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiKeyContext, apiUnauthorized } from "@/lib/api-context";
-import { unapplyReceiptAllocation } from "@/lib/receipts-api";
+import { unapplyReceiptAllocation, getReceipt } from "@/lib/receipts-api";
 
 // POST /api/v1/receipts/{id}/unapply — removes this receipt's application against one
 // invoice. Body: { invoice_id }. The receipt itself (and any of its other allocations) is
@@ -16,5 +16,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const result = await unapplyReceiptAllocation(ctx.orgId, params.id, invoiceId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
-  return NextResponse.json({ data: { id: result.id } });
+  // Return the full receipt (with its updated allocations), same reasoning as create/update.
+  const receipt = await getReceipt(ctx.orgId, result.id!);
+  return NextResponse.json({ data: receipt });
 }

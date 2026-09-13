@@ -66,7 +66,7 @@ export const settingsGroups: SettingsGroup[] = [
     section: "organization",
     items: [
       { slug: "users", label: "Users", description: "Everyone with access to this organization.", view: "users-list" },
-      { slug: "roles", label: "Roles", description: "Define what each role can see and do.", view: "roles-list" },
+      { slug: "roles", label: "Roles and Permissions", description: "Define what each role can see and do.", view: "roles-list" },
       { slug: "user-preferences", label: "User Preferences", description: "Personal display and notification preferences." },
     ],
   },

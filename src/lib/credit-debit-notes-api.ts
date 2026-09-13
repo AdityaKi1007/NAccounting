@@ -53,7 +53,7 @@ export async function listCreditOrDebitNotes(kind: "credit" | "debit", orgId: st
   const dateField = kind === "credit" ? "credit_note_date" : "debit_note_date";
   const numberField = kind === "credit" ? "credit_note_number" : "debit_note_number";
   const result = await pool.query(
-    `SELECT id, ${numberField} AS number, customer_id, invoice_id, ${dateField} AS note_date, status,
+    `SELECT id, organization_id, ${numberField} AS number, customer_id, invoice_id, ${dateField} AS note_date, status,
             subtotal, tax_total, total, balance_applied, reference_number, reason, created_at
        FROM ${table} WHERE organization_id = $1 ORDER BY created_at DESC`,
     [orgId]
@@ -71,7 +71,7 @@ export async function getCreditOrDebitNote(kind: "credit" | "debit", orgId: stri
   const numberField = kind === "credit" ? "credit_note_number" : "debit_note_number";
 
   const header = await queryOne<Record<string, unknown>>(
-    `SELECT id, ${numberField} AS number, customer_id, invoice_id, ${dateField} AS note_date, status,
+    `SELECT id, organization_id, ${numberField} AS number, customer_id, invoice_id, ${dateField} AS note_date, status,
             subtotal, tax_total, total, balance_applied, reference_number, reason, created_at
        FROM ${table} WHERE id = $1 AND organization_id = $2`,
     [noteId, orgId]

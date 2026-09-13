@@ -10,6 +10,7 @@ import {
   BarChart3,
   FolderOpen,
   Building2,
+  UploadCloud,
 } from "lucide-react";
 
 export interface NavChild {
@@ -88,4 +89,5 @@ export const nav: NavItem[] = [
   },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Documents", href: "/documents", icon: FolderOpen },
+  { label: "Import", href: "/import", icon: UploadCloud },
 ];

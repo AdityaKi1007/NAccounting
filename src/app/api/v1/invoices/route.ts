@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiKeyContext, apiUnauthorized } from "@/lib/api-context";
 import { documentConfigs } from "@/lib/documents";
-import { listDocuments, createDocument, type DocumentBody } from "@/lib/documents-api";
+import { listDocuments, createDocument, getDocument, type DocumentBody } from "@/lib/documents-api";
+import { getDisabledFields, filterConfigurableFields } from "@/lib/api-field-config";
 
 const cfg = documentConfigs.invoices;
 
@@ -26,7 +27,15 @@ export async function POST(req: NextRequest) {
   if (!ctx) return apiUnauthorized();
 
   const body: DocumentBody = await req.json().catch(() => ({ header: {}, lines: [] }));
+  if (body.header) {
+    const disabled = await getDisabledFields(ctx.orgId, "invoices", "create");
+    body.header = filterConfigurableFields("invoices", "create", body.header, disabled);
+  }
   const result = await createDocument(cfg, ctx.orgId, body);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
-  return NextResponse.json({ data: { id: result.id } }, { status: 201 });
+  // Return the full created document (not just the id) — its header includes
+  // organization_id, so a caller can confirm which tenant the record landed in, matching
+  // the shape every other create endpoint in this API already returns.
+  const doc = await getDocument(cfg, ctx.orgId, result.id!);
+  return NextResponse.json({ data: doc }, { status: 201 });
 }

@@ -1458,7 +1458,12 @@ export const entities: Record<string, EntityDef> = {
     module: "Property Master",
     kind: "flat",
     titleField: "name",
-    disableTitleLink: true,
+    // Has a real read-only detail view now (src/app/(app)/inventory/[id]/page.tsx — Unit
+    // Details plus its related Sales Orders/Invoices/Receipts) — supersedes the earlier
+    // disableTitleLink:true decision (there was no detail page then, only an edit form the
+    // user didn't want opened on a name click; now the name click lands on a genuine
+    // non-editable page instead, exactly what that decision was trying to prevent).
+    hasDetailView: true,
     orderBy: "created_at desc",
     listColumns: ["name", "building_id", "project_id", "unit_type", "status", "listed_price"],
     fields: [

@@ -17,7 +17,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     max_users,
     disabled_modules,
   } = body as {
-    approval_status?: "pending" | "approved" | "rejected";
+    approval_status?: "pending" | "approved" | "rejected" | "suspended";
     rejection_reason?: string | null;
     subscription_plan?: string;
     max_users?: number | null;
@@ -29,12 +29,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   let i = 1;
 
   if (approval_status !== undefined) {
-    if (!["pending", "approved", "rejected"].includes(approval_status)) {
+    if (!["pending", "approved", "rejected", "suspended"].includes(approval_status)) {
       return NextResponse.json({ error: "Invalid approval status." }, { status: 400 });
     }
     sets.push(`approval_status = $${i++}`);
     values.push(approval_status);
     if (approval_status === "approved") {
+      // Also covers reactivating a suspended org — re-stamps approved_at/by as the record of
+      // who most recently let this organization back in.
       sets.push(`approved_at = now()`, `approved_by = $${i++}`, `rejection_reason = NULL`);
       values.push(ctx.userId);
     } else if (approval_status === "rejected") {

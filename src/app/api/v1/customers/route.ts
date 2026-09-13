@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiKeyContext, apiUnauthorized } from "@/lib/api-context";
 import { listRows, createRow } from "@/lib/crud";
+import { getDisabledFields, filterConfigurableFields } from "@/lib/api-field-config";
 
 // Body shape for POST/PATCH mirrors the "customers" entity fields in src/lib/entities.ts —
 // display_name is the only required field, e.g.
 //   { display_name: "Acme LLC", email: "ap@acme.com", currency: "AED", billing_address: "..." }
+//
+// Which of the optional fields above this organization's integration is actually allowed to
+// send is configurable per org — see Settings -> Integrations -> API Keys' Request Payload
+// Builder and src/lib/api-field-config.ts. A field the org has disabled is silently dropped
+// from the incoming body below before it ever reaches createRow, not rejected as an error.
 export async function GET(req: NextRequest) {
   const ctx = await getApiKeyContext(req);
   if (!ctx) return apiUnauthorized();
@@ -22,6 +28,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "display_name is required." }, { status: 400 });
   }
 
-  const row = await createRow("customers", ctx.orgId, body);
+  const disabled = await getDisabledFields(ctx.orgId, "customers", "create");
+  const filtered = filterConfigurableFields("customers", "create", body, disabled);
+
+  const row = await createRow("customers", ctx.orgId, filtered);
   return NextResponse.json({ data: row }, { status: 201 });
 }

@@ -15,6 +15,7 @@ import RemindersManager from "@/components/settings/RemindersManager";
 import SettingsEntityList from "@/components/settings/SettingsEntityList";
 import RolePermissionsManager from "@/components/settings/RolePermissionsManager";
 import ApiKeysManager from "@/components/settings/ApiKeysManager";
+import ApiFieldConfigBuilder from "@/components/settings/ApiFieldConfigBuilder";
 import NumberSeriesSettings from "@/components/settings/NumberSeriesSettings";
 import OpeningBalancesManager from "@/components/settings/OpeningBalancesManager";
 import EmailSmtpSettingsForm from "@/components/settings/EmailSmtpSettingsForm";
@@ -414,6 +415,8 @@ export default async function SettingsItemPage({
             }
           />
         )}
+
+        {item.view === "api-keys" && <ApiFieldConfigBuilder />}
 
         {item.view === "email-smtp" && (
           <EmailSmtpSettingsForm

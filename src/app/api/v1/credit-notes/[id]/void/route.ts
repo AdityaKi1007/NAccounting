@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiKeyContext, apiUnauthorized } from "@/lib/api-context";
-import { voidCreditOrDebitNote } from "@/lib/credit-debit-notes-api";
+import { voidCreditOrDebitNote, getCreditOrDebitNote } from "@/lib/credit-debit-notes-api";
 
 // POST /api/v1/credit-notes/{id}/void — this is the "unapplication" action for credit memos:
 // since a credit note is always 1:1 against a single invoice with no multi-invoice allocation
@@ -14,5 +14,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   const result = await voidCreditOrDebitNote("credit", ctx.orgId, params.id);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
-  return NextResponse.json({ data: { id: result.id } });
+  // Return the full voided note, same reasoning as the create endpoint above.
+  const note = await getCreditOrDebitNote("credit", ctx.orgId, result.id!);
+  return NextResponse.json({ data: note });
 }

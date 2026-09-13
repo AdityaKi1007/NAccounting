@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, Code2, Copy, KeyRound, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Code2, Copy, KeyRound, Plus, Trash2 } from "lucide-react";
 import Modal from "@/components/ui/Modal";
 import { formatDateTime } from "@/lib/format";
 
@@ -16,27 +16,530 @@ interface ApiKeyRow {
   created_at: string;
 }
 
-const ENDPOINTS: { method: string; path: string; note: string }[] = [
-  { method: "GET", path: "/api/v1/invoices", note: "List invoices (add ?id=... for one)" },
-  { method: "POST", path: "/api/v1/invoices", note: "Create an invoice" },
-  { method: "PATCH", path: "/api/v1/invoices/{id}", note: "Update an invoice" },
-  { method: "GET", path: "/api/v1/receipts", note: "List payment receipts" },
-  { method: "POST", path: "/api/v1/receipts", note: "Record a payment / receipt" },
-  { method: "PATCH", path: "/api/v1/receipts/{id}", note: "Update a receipt" },
-  { method: "POST", path: "/api/v1/receipts/{id}/apply", note: "Apply more of a receipt to an invoice" },
-  { method: "POST", path: "/api/v1/receipts/{id}/unapply", note: "Unapply a receipt from one invoice" },
-  { method: "GET", path: "/api/v1/customers", note: "List customers" },
-  { method: "POST", path: "/api/v1/customers", note: "Create a customer" },
-  { method: "PATCH", path: "/api/v1/customers/{id}", note: "Update a customer" },
-  { method: "GET", path: "/api/v1/vendors", note: "List vendors" },
-  { method: "POST", path: "/api/v1/vendors", note: "Create a vendor" },
-  { method: "PATCH", path: "/api/v1/vendors/{id}", note: "Update a vendor" },
-  { method: "GET", path: "/api/v1/sales-orders", note: "List sales orders" },
-  { method: "POST", path: "/api/v1/sales-orders", note: "Create a sales order" },
-  { method: "PATCH", path: "/api/v1/sales-orders/{id}", note: "Update a sales order" },
-  { method: "GET", path: "/api/v1/credit-notes", note: "List credit memos" },
-  { method: "POST", path: "/api/v1/credit-notes", note: "Create a credit memo against an invoice" },
-  { method: "POST", path: "/api/v1/credit-notes/{id}/void", note: "Void a credit memo (unapply)" },
+interface EndpointDef {
+  method: "GET" | "POST" | "PATCH";
+  path: string;
+  note: string;
+  // Omitted for endpoints that take no request body (GET, and void).
+  request?: string;
+  response: string;
+}
+
+// Every request/response example below reflects the actual current behavior of the
+// /api/v1/* routes (see src/app/api/v1/**), not hand-typed guesses — kept in sync with
+// claude/api-reference-v1.md. Every create/update/apply/unapply/void endpoint returns the
+// FULL resulting record (not just its id) precisely so organization_id is always visible in
+// the response — a caller can confirm which tenant a record landed in on every single write,
+// not only on GET. Every entity is tenant-scoped server-side via the API key's own
+// organization (see getApiKeyContext in src/lib/api-context.ts) — a caller never supplies or
+// overrides organization_id; it's always the API key's own org, both when writing and when
+// reading (a request for another org's id or org's ID always 404s "Not found", never a 403,
+// so a key can never even detect that a foreign-org record exists).
+const ENDPOINTS: EndpointDef[] = [
+  {
+    method: "GET",
+    path: "/api/v1/invoices",
+    note: "List invoices (query: limit, offset)",
+    response: `{
+  "data": [
+    {
+      "id": "9d8e22b8-f29e-45c0-9d9f-cb171e730cf2",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "invoice_number": "INV-000001",
+      "customer_id": "05dfee68-f504-4694-83b0-471c251676ab",
+      "status": "sent",
+      "total": "1000",
+      "balance_due": "1000",
+      "invoice_date": "2026-09-01T00:00:00.000Z"
+    }
+  ]
+}`,
+  },
+  {
+    method: "POST",
+    path: "/api/v1/invoices",
+    note: "Create an invoice",
+    request: `{
+  "header": {
+    "customer_id": "05dfee68-f504-4694-83b0-471c251676ab",
+    "invoice_date": "2026-09-01",
+    "due_date": "2026-09-15",
+    "status": "sent",
+    "notes": "Thank you for your business"
+  },
+  "lines": [
+    { "description": "Consulting", "quantity": 1, "rate": 1000 }
+  ],
+  "taxPercent": 0
+}`,
+    response: `{
+  "data": {
+    "header": {
+      "id": "9d8e22b8-f29e-45c0-9d9f-cb171e730cf2",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "invoice_number": "INV-000002",
+      "customer_id": "05dfee68-f504-4694-83b0-471c251676ab",
+      "status": "sent",
+      "subtotal": "1000",
+      "tax_total": "0",
+      "total": "1000",
+      "balance_due": "1000",
+      "invoice_date": "2026-09-01T00:00:00.000Z",
+      "due_date": "2026-09-15T00:00:00.000Z"
+    },
+    "lines": [
+      { "id": "4215840e-36df-4668-91dd-be7f937e22a6", "description": "Consulting", "quantity": "1", "rate": "1000", "amount": "1000" }
+    ],
+    "taxPercent": 0
+  }
+}`,
+  },
+  {
+    method: "GET",
+    path: "/api/v1/invoices/{id}",
+    note: "Get one invoice (header + lines)",
+    response: `{
+  "data": {
+    "header": {
+      "id": "9d8e22b8-f29e-45c0-9d9f-cb171e730cf2",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "invoice_number": "INV-000002",
+      "customer_id": "05dfee68-f504-4694-83b0-471c251676ab",
+      "status": "sent",
+      "subtotal": "1000",
+      "tax_total": "0",
+      "total": "1000",
+      "balance_due": "1000"
+    },
+    "lines": [
+      { "id": "4215840e-36df-4668-91dd-be7f937e22a6", "description": "Consulting", "quantity": "1", "rate": "1000", "amount": "1000" }
+    ],
+    "taxPercent": 0
+  }
+}`,
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/invoices/{id}",
+    note: "Update an invoice (any field omitted is left unchanged)",
+    request: `{
+  "header": { "status": "sent", "notes": "Revised total" },
+  "lines": [
+    { "description": "Consulting (revised)", "quantity": 1, "rate": 1200 }
+  ]
+}`,
+    response: `{
+  "data": {
+    "header": {
+      "id": "9d8e22b8-f29e-45c0-9d9f-cb171e730cf2",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "invoice_number": "INV-000002",
+      "status": "sent",
+      "total": "1200",
+      "balance_due": "1200",
+      "notes": "Revised total"
+    },
+    "lines": [
+      { "id": "6a1f...", "description": "Consulting (revised)", "quantity": "1", "rate": "1200", "amount": "1200" }
+    ],
+    "taxPercent": 0
+  }
+}`,
+  },
+  {
+    method: "GET",
+    path: "/api/v1/receipts",
+    note: "List payment receipts (query: limit, offset)",
+    response: `{
+  "data": [
+    {
+      "id": "b85df141-9739-45bc-8b64-099704255520",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "customer_id": "05dfee68-f504-4694-83b0-471c251676ab",
+      "amount": "1500",
+      "status": "paid",
+      "payment_date": "2026-09-10T00:00:00.000Z"
+    }
+  ]
+}`,
+  },
+  {
+    method: "POST",
+    path: "/api/v1/receipts",
+    note: "Record a payment / receipt",
+    request: `{
+  "customer_id": "05dfee68-f504-4694-83b0-471c251676ab",
+  "amount": 1500,
+  "bank_account_id": "08c46dd9-221c-4fe9-88e0-5086fcd420e5",
+  "payment_date": "2026-09-10",
+  "payment_mode": "bank_transfer",
+  "status": "paid",
+  "allocations": [
+    { "invoice_id": "9d8e22b8-f29e-45c0-9d9f-cb171e730cf2", "amount": 1000 }
+  ]
+}`,
+    response: `{
+  "data": {
+    "header": {
+      "id": "b85df141-9739-45bc-8b64-099704255520",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "customer_id": "05dfee68-f504-4694-83b0-471c251676ab",
+      "amount": "1500",
+      "status": "paid",
+      "payment_date": "2026-09-10T00:00:00.000Z"
+    },
+    "allocations": [
+      { "invoice_id": "9d8e22b8-f29e-45c0-9d9f-cb171e730cf2", "invoice_number": "INV-000002", "amount": "1000" }
+    ]
+  }
+}`,
+  },
+  {
+    method: "GET",
+    path: "/api/v1/receipts/{id}",
+    note: "Get one receipt (header + allocations)",
+    response: `{
+  "data": {
+    "header": {
+      "id": "b85df141-9739-45bc-8b64-099704255520",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "amount": "1500",
+      "status": "paid"
+    },
+    "allocations": [
+      { "invoice_id": "9d8e22b8-f29e-45c0-9d9f-cb171e730cf2", "invoice_number": "INV-000002", "amount": "1000" }
+    ]
+  }
+}`,
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/receipts/{id}",
+    note: "Update metadata only (not amount / allocations / status)",
+    request: `{ "reference_number": "TXN-88213-corrected", "notes": "Corrected ref #" }`,
+    response: `{
+  "data": {
+    "header": {
+      "id": "b85df141-9739-45bc-8b64-099704255520",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "reference_number": "TXN-88213-corrected",
+      "notes": "Corrected ref #"
+    },
+    "allocations": [
+      { "invoice_id": "9d8e22b8-f29e-45c0-9d9f-cb171e730cf2", "invoice_number": "INV-000002", "amount": "1000" }
+    ]
+  }
+}`,
+  },
+  {
+    method: "POST",
+    path: "/api/v1/receipts/{id}/apply",
+    note: "Apply more of a Paid receipt to an invoice",
+    request: `{ "invoice_id": "ad60bf94-810b-41bd-85f0-71087ffd5d5e", "amount": 500 }`,
+    response: `{
+  "data": {
+    "header": { "id": "b85df141-9739-45bc-8b64-099704255520", "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760", "status": "paid" },
+    "allocations": [
+      { "invoice_id": "9d8e22b8-f29e-45c0-9d9f-cb171e730cf2", "invoice_number": "INV-000002", "amount": "1000" },
+      { "invoice_id": "ad60bf94-810b-41bd-85f0-71087ffd5d5e", "invoice_number": "INV-000003", "amount": "500" }
+    ]
+  }
+}`,
+  },
+  {
+    method: "POST",
+    path: "/api/v1/receipts/{id}/unapply",
+    note: "Reverse one invoice's allocation",
+    request: `{ "invoice_id": "ad60bf94-810b-41bd-85f0-71087ffd5d5e" }`,
+    response: `{
+  "data": {
+    "header": { "id": "b85df141-9739-45bc-8b64-099704255520", "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760", "status": "paid" },
+    "allocations": [
+      { "invoice_id": "9d8e22b8-f29e-45c0-9d9f-cb171e730cf2", "invoice_number": "INV-000002", "amount": "1000" }
+    ]
+  }
+}`,
+  },
+  {
+    method: "GET",
+    path: "/api/v1/customers",
+    note: "List customers",
+    response: `{
+  "data": [
+    {
+      "id": "05dfee68-f504-4694-83b0-471c251676ab",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "display_name": "Test Customer Co",
+      "email": "cust@example.com",
+      "currency": "AED",
+      "is_active": true
+    }
+  ]
+}`,
+  },
+  {
+    method: "POST",
+    path: "/api/v1/customers",
+    note: "Create a customer",
+    request: `{
+  "display_name": "Test Customer Co",
+  "email": "cust@example.com",
+  "currency": "AED",
+  "billing_address": "123 Main St"
+}`,
+    response: `{
+  "data": {
+    "id": "05dfee68-f504-4694-83b0-471c251676ab",
+    "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+    "display_name": "Test Customer Co",
+    "email": "cust@example.com",
+    "currency": "AED",
+    "is_active": false,
+    "created_at": "2026-09-10T18:32:16.099Z"
+  }
+}`,
+  },
+  {
+    method: "GET",
+    path: "/api/v1/customers/{id}",
+    note: "Get one customer",
+    response: `{
+  "data": {
+    "id": "05dfee68-f504-4694-83b0-471c251676ab",
+    "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+    "display_name": "Test Customer Co",
+    "email": "cust@example.com",
+    "currency": "AED",
+    "is_active": true
+  }
+}`,
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/customers/{id}",
+    note: "Update a customer (any subset of create fields)",
+    request: `{ "is_active": true, "work_phone": "555-1000" }`,
+    response: `{
+  "data": {
+    "id": "05dfee68-f504-4694-83b0-471c251676ab",
+    "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+    "display_name": "Test Customer Co",
+    "is_active": true,
+    "work_phone": "555-1000"
+  }
+}`,
+  },
+  {
+    method: "GET",
+    path: "/api/v1/vendors",
+    note: "List vendors",
+    response: `{
+  "data": [
+    {
+      "id": "9e499ef0-bd64-4454-8649-b7d79f8fdbd7",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "display_name": "Test Vendor Co",
+      "email": "vendor@example.com",
+      "currency": "AED",
+      "is_active": true
+    }
+  ]
+}`,
+  },
+  {
+    method: "POST",
+    path: "/api/v1/vendors",
+    note: "Create a vendor",
+    request: `{ "display_name": "Test Vendor Co", "email": "vendor@example.com", "currency": "AED" }`,
+    response: `{
+  "data": {
+    "id": "9e499ef0-bd64-4454-8649-b7d79f8fdbd7",
+    "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+    "display_name": "Test Vendor Co",
+    "email": "vendor@example.com",
+    "currency": "AED",
+    "is_active": false,
+    "created_at": "2026-09-10T18:32:02.285Z"
+  }
+}`,
+  },
+  {
+    method: "GET",
+    path: "/api/v1/vendors/{id}",
+    note: "Get one vendor",
+    response: `{
+  "data": {
+    "id": "9e499ef0-bd64-4454-8649-b7d79f8fdbd7",
+    "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+    "display_name": "Test Vendor Co",
+    "is_active": true
+  }
+}`,
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/vendors/{id}",
+    note: "Update a vendor",
+    request: `{ "is_active": true, "phone": "555-1234" }`,
+    response: `{
+  "data": {
+    "id": "9e499ef0-bd64-4454-8649-b7d79f8fdbd7",
+    "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+    "display_name": "Test Vendor Co",
+    "is_active": true,
+    "phone": "555-1234"
+  }
+}`,
+  },
+  {
+    method: "GET",
+    path: "/api/v1/sales-orders",
+    note: "List sales orders (query: limit, offset)",
+    response: `{
+  "data": [
+    {
+      "id": "3c0a...",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "so_number": "SO-000001",
+      "customer_id": "05dfee68-f504-4694-83b0-471c251676ab",
+      "status": "sent",
+      "total": "500"
+    }
+  ]
+}`,
+  },
+  {
+    method: "POST",
+    path: "/api/v1/sales-orders",
+    note: "Create a sales order",
+    request: `{
+  "header": { "customer_id": "...", "order_date": "2026-09-10", "shipment_date": "2026-09-20", "status": "sent" },
+  "lines": [ { "description": "Widgets", "quantity": 10, "rate": 50 } ],
+  "taxPercent": 5
+}`,
+    response: `{
+  "data": {
+    "header": {
+      "id": "3c0a...",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "so_number": "SO-000001",
+      "status": "sent",
+      "subtotal": "500",
+      "tax_total": "25",
+      "total": "525"
+    },
+    "lines": [
+      { "id": "7bf1...", "description": "Widgets", "quantity": "10", "rate": "50", "amount": "500" }
+    ],
+    "taxPercent": 5
+  }
+}`,
+  },
+  {
+    method: "GET",
+    path: "/api/v1/sales-orders/{id}",
+    note: "Get one sales order (header + lines)",
+    response: `{
+  "data": {
+    "header": { "id": "3c0a...", "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760", "so_number": "SO-000001", "status": "sent", "total": "525" },
+    "lines": [ { "id": "7bf1...", "description": "Widgets", "quantity": "10", "rate": "50", "amount": "500" } ],
+    "taxPercent": 5
+  }
+}`,
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/sales-orders/{id}",
+    note: "Update a sales order (any field omitted is left unchanged)",
+    request: `{ "header": { "status": "sent" } }`,
+    response: `{
+  "data": {
+    "header": { "id": "3c0a...", "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760", "so_number": "SO-000001", "status": "sent", "total": "525" },
+    "lines": [ { "id": "7bf1...", "description": "Widgets", "quantity": "10", "rate": "50", "amount": "500" } ],
+    "taxPercent": 5
+  }
+}`,
+  },
+  {
+    method: "GET",
+    path: "/api/v1/credit-notes",
+    note: "List credit memos",
+    response: `{
+  "data": [
+    {
+      "id": "225a4bbc-5e4c-44aa-835b-989e3d98eb9d",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "number": "CN-000001",
+      "invoice_id": "392da528-fea4-4bfb-85e2-1d46029c361c",
+      "status": "open",
+      "total": "300",
+      "balance_applied": "300"
+    }
+  ]
+}`,
+  },
+  {
+    method: "POST",
+    path: "/api/v1/credit-notes",
+    note: "Create a credit memo against an invoice — this is \"apply\"",
+    request: `{
+  "invoice_id": "392da528-fea4-4bfb-85e2-1d46029c361c",
+  "note_date": "2026-09-10",
+  "reason": "Damaged goods",
+  "taxPercent": 0,
+  "lines": [
+    { "description": "Damaged widget refund", "quantity": 1, "rate": 300 }
+  ]
+}`,
+    response: `{
+  "data": {
+    "id": "225a4bbc-5e4c-44aa-835b-989e3d98eb9d",
+    "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+    "number": "CN-000001",
+    "invoice_id": "392da528-fea4-4bfb-85e2-1d46029c361c",
+    "status": "open",
+    "total": "300",
+    "balance_applied": "300",
+    "reason": "Damaged goods",
+    "line_items": [
+      { "id": "855ba2bd-e174-4bb8-8df6-77d6052dfb1c", "description": "Damaged widget refund", "quantity": "1", "rate": "300", "amount": "300" }
+    ]
+  }
+}`,
+  },
+  {
+    method: "GET",
+    path: "/api/v1/credit-notes/{id}",
+    note: "Get one credit memo (includes line items)",
+    response: `{
+  "data": {
+    "id": "225a4bbc-5e4c-44aa-835b-989e3d98eb9d",
+    "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+    "number": "CN-000001",
+    "status": "open",
+    "total": "300",
+    "balance_applied": "300",
+    "line_items": [
+      { "id": "855ba2bd-e174-4bb8-8df6-77d6052dfb1c", "description": "Damaged widget refund", "quantity": "1", "rate": "300", "amount": "300" }
+    ]
+  }
+}`,
+  },
+  {
+    method: "POST",
+    path: "/api/v1/credit-notes/{id}/void",
+    note: "Void a credit memo — this is \"unapply\" (no request body)",
+    response: `{
+  "data": {
+    "id": "225a4bbc-5e4c-44aa-835b-989e3d98eb9d",
+    "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+    "number": "CN-000001",
+    "status": "void",
+    "total": "300",
+    "balance_applied": "300"
+  }
+}`,
+  },
 ];
 
 const methodColor: Record<string, string> = {
@@ -55,6 +558,9 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
   const [copied, setCopied] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  // Which REST API Reference row has its request/response body expanded, keyed by
+  // "METHOD path" — at most one open at a time keeps the reference list scannable.
+  const [expandedEndpoint, setExpandedEndpoint] = useState<string | null>(null);
 
   function openNew() {
     setName("");
@@ -211,18 +717,55 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
         <p className="mb-3 text-xs text-gray-500">
           Authenticate every request with{" "}
           <code className="rounded bg-gray-100 px-1 py-0.5">Authorization: Bearer &lt;your key&gt;</code> (or an{" "}
-          <code className="rounded bg-gray-100 px-1 py-0.5">X-API-Key</code> header).
+          <code className="rounded bg-gray-100 px-1 py-0.5">X-API-Key</code> header). Click any row to see an
+          example request and response body.
         </p>
         <div className="space-y-1.5">
-          {ENDPOINTS.map((e) => (
-            <div key={`${e.method} ${e.path}`} className="flex items-center gap-3 text-xs">
-              <span className={`w-14 shrink-0 rounded px-1.5 py-0.5 text-center font-mono font-semibold ${methodColor[e.method]}`}>
-                {e.method}
-              </span>
-              <code className="w-56 shrink-0 text-ink-700">{e.path}</code>
-              <span className="text-gray-500">{e.note}</span>
-            </div>
-          ))}
+          {ENDPOINTS.map((e) => {
+            const key = `${e.method} ${e.path}`;
+            const isOpen = expandedEndpoint === key;
+            return (
+              <div key={key} className="rounded-md border border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setExpandedEndpoint(isOpen ? null : key)}
+                  className="flex w-full items-center gap-3 px-2 py-1.5 text-left text-xs hover:bg-gray-50"
+                >
+                  <span className={`w-14 shrink-0 rounded px-1.5 py-0.5 text-center font-mono font-semibold ${methodColor[e.method]}`}>
+                    {e.method}
+                  </span>
+                  <code className="w-56 shrink-0 text-ink-700">{e.path}</code>
+                  <span className="flex-1 text-gray-500">{e.note}</span>
+                  <ChevronDown
+                    size={14}
+                    className={`shrink-0 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+                {isOpen && (
+                  <div className="space-y-3 border-t border-gray-100 bg-gray-50 px-3 py-3">
+                    {e.request && (
+                      <div>
+                        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                          Request Body
+                        </p>
+                        <pre className="overflow-x-auto rounded bg-ink-900 p-2.5 text-[11px] leading-relaxed text-gray-100">
+                          <code>{e.request}</code>
+                        </pre>
+                      </div>
+                    )}
+                    <div>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                        Response Body
+                      </p>
+                      <pre className="overflow-x-auto rounded bg-ink-900 p-2.5 text-[11px] leading-relaxed text-gray-100">
+                        <code>{e.response}</code>
+                      </pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 

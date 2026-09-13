@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiKeyContext, apiUnauthorized } from "@/lib/api-context";
 import { getReceipt, updateReceiptMeta } from "@/lib/receipts-api";
+import { getDisabledFields, filterConfigurableFields } from "@/lib/api-field-config";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiKeyContext(_req);
@@ -18,8 +19,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const ctx = await getApiKeyContext(req);
   if (!ctx) return apiUnauthorized();
 
-  const body = await req.json().catch(() => ({}));
+  const rawBody = await req.json().catch(() => ({}));
+  const disabled = await getDisabledFields(ctx.orgId, "receipts", "update");
+  const body = filterConfigurableFields("receipts", "update", rawBody, disabled);
   const result = await updateReceiptMeta(ctx.orgId, params.id, body);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
-  return NextResponse.json({ data: { id: result.id } });
+  // Return the full updated receipt, same reasoning as the create endpoint above.
+  const receipt = await getReceipt(ctx.orgId, result.id!);
+  return NextResponse.json({ data: receipt });
 }
