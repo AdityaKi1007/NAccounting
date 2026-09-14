@@ -1484,6 +1484,46 @@ export const entities: Record<string, EntityDef> = {
     ],
   },
 
+  // Cost-breakdown line item belonging to a Project — "selectable on projects" (project_id
+  // below) plus surfaced as a list under the Project detail page (see the Other Charges
+  // section in src/app/(app)/projects/[id]/page.tsx), the same "child selects its parent,
+  // parent's detail page lists its children" pattern Buildings already uses for Projects.
+  // No detail view of its own (not requested) — the row's title links straight to the edit
+  // form, same as Buildings/Units.
+  "other-charges": {
+    key: "other-charges",
+    table: "other_charges",
+    label: "Other Charge",
+    labelPlural: "Other Charges",
+    module: "Property Master",
+    kind: "flat",
+    titleField: "category",
+    orderBy: "created_at desc",
+    listColumns: ["category", "project_id", "calculation_basis", "aed_psqft", "aed_mn", "pct_gross_outflow"],
+    fields: [
+      {
+        name: "category",
+        label: "Category",
+        type: "select",
+        required: true,
+        options: [
+          { label: "Land payments", value: "Land payments" },
+          { label: "Construction cost", value: "Construction cost" },
+          { label: "DLD & registration", value: "DLD & registration" },
+          { label: "RERA refundable deposit", value: "RERA refundable deposit" },
+          { label: "Development overheads", value: "Development overheads" },
+          { label: "Sales & marketing", value: "Sales & marketing" },
+          { label: "Approval authorities & consultants", value: "Approval authorities & consultants" },
+        ],
+      },
+      { name: "project_id", label: "Project", type: "select", refEntity: "projects", refLabelField: "name", required: true },
+      { name: "calculation_basis", label: "Calculation Basis", type: "text" },
+      { name: "aed_psqft", label: "AED (psqft)", type: "number" },
+      { name: "aed_mn", label: "AED Mn", type: "number" },
+      { name: "pct_gross_outflow", label: "% of Gross Outflow", type: "number" },
+    ],
+  },
+
   buildings: {
     key: "buildings",
     table: "buildings",

@@ -34,6 +34,26 @@ interface BuildingRow {
   actual_handover_date: string | null;
 }
 
+interface OtherChargeRow {
+  id: string;
+  category: string;
+  calculation_basis: string | null;
+  aed_psqft: number | string | null;
+  aed_mn: number | string | null;
+  pct_gross_outflow: number | string | null;
+}
+
+// Plain numeric display for Other Charges' rate/amount/percent columns — these are real-estate
+// metrics (a psqft rate, a value already expressed in millions, a share of gross outflow), not
+// document totals, so formatCurrency's currency-code styling would be a mismatch; the unit is
+// already carried by each column header instead (AED (psqft) / AED Mn / % of Gross Outflow).
+function formatMetric(value: number | string | null, suffix = "") {
+  if (value === null || value === undefined || value === "") return "-";
+  const n = typeof value === "number" ? value : parseFloat(value);
+  if (!Number.isFinite(n)) return "-";
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(n)}${suffix}`;
+}
+
 function StatusPill({ status }: { status: string }) {
   const tone = status === "ready" ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700";
   const label = status === "ready" ? "Ready" : "Offplan";
@@ -68,6 +88,13 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
   const buildings = await query<BuildingRow>(
     `SELECT id, name, code, estimated_handover_date, actual_handover_date
      FROM buildings WHERE project_id = $1 AND organization_id = $2
+     ORDER BY created_at DESC`,
+    [params.id, ctx.orgId]
+  );
+
+  const otherCharges = await query<OtherChargeRow>(
+    `SELECT id, category, calculation_basis, aed_psqft, aed_mn, pct_gross_outflow
+     FROM other_charges WHERE project_id = $1 AND organization_id = $2
      ORDER BY created_at DESC`,
     [params.id, ctx.orgId]
   );
@@ -166,6 +193,47 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
                       <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{b.code || "-"}</td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{formatDate(b.estimated_handover_date)}</td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{formatDate(b.actual_handover_date)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="card">
+          <div className="border-b border-gray-100 px-6 py-4">
+            <h2 className="text-sm font-semibold text-ink-800">Other Charges ({otherCharges.length})</h2>
+          </div>
+          {otherCharges.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+              <Building2 size={28} className="text-gray-300" />
+              <p className="text-sm text-gray-500">No other charges under this project yet.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-4 py-2.5">Category</th>
+                    <th className="px-4 py-2.5">Calculation Basis</th>
+                    <th className="px-4 py-2.5">AED (psqft)</th>
+                    <th className="px-4 py-2.5">AED Mn</th>
+                    <th className="px-4 py-2.5">% of Gross Outflow</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {otherCharges.map((c) => (
+                    <tr key={c.id} className="hover:bg-gray-50">
+                      <td className="whitespace-nowrap px-4 py-2.5">
+                        <Link href={`/other-charges/${c.id}`} className="font-medium text-brand-600 hover:underline">
+                          {c.category}
+                        </Link>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{c.calculation_basis || "-"}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{formatMetric(c.aed_psqft)}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{formatMetric(c.aed_mn)}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{formatMetric(c.pct_gross_outflow, "%")}</td>
                     </tr>
                   ))}
                 </tbody>

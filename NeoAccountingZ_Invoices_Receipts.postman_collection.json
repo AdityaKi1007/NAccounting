@@ -1,0 +1,869 @@
+{
+  "info": {
+    "_postman_id": "b4e3f4a0-6b1a-4b2e-9d3a-neoaccountingz01",
+    "name": "NeoAccounting \u2013 Invoices & Receipts API",
+    "description": "Third-party REST API for NeoAccounting \u2014 Invoices and Receipts (Payments Received) only, including the Receipt apply/unapply actions.\n\n## Before you run this\n1. Set `base_url` (collection variable) to your NeoAccounting domain, e.g. `https://your-domain.com`.\n2. Set `api_key` (collection variable) to a key generated from Settings \u2192 Integrations \u2192 API Keys in the app. It's sent as `Authorization: Bearer {{api_key}}` on every request (set at the collection level).\n3. Set `customer_id` and `bank_account_id` to real ids from your organization (open a customer or bank account in the app \u2014 the id is in the URL), or grab them from a `GET /api/v1/customers` call if you have the fuller API collection.\n\n## How requests chain together\n\"Create Invoice\" and \"Create Receipt\" each save the id they get back into the `invoice_id` / `receipt_id` collection variables automatically (see each request's Tests tab), so every other request in this collection already points at the record you just created \u2014 run top to bottom inside a folder and it just works.\n\n## Auth\nEvery request needs `Authorization: Bearer <key>` or an `X-API-Key: <key>` header. This collection sets the Bearer header once at the collection level so every request inherits it.\n\n## Response validation\nEvery request in this collection has a **Tests** script that runs automatically after the response comes back \u2014 it checks the status code and confirms the JSON matches the shape documented in the API reference (e.g. `data.id` on create, `data.header`/`data.lines` on a get). Open the **Test Results** tab after running a request (or the Runner's summary when running the whole collection) to see pass/fail for each check. Several requests also carry saved **Examples** (visible in the sidebar under the request) showing a real success response and the documented error responses, so you can see the expected shape without calling the API at all.\n\n## Response shape\nSuccess: `{ \"data\": ... }`. Error: `{ \"error\": \"...\" }` with a non-2xx status (400 bad request/invalid state, 401 bad key, 404 not found, 500 server error).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{api_key}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "api_key",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "customer_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bank_account_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "invoice_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "receipt_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Invoices",
+      "item": [
+        {
+          "name": "List Invoices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/invoices?limit=20&offset=0",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Lists invoices for the organization the API key belongs to. `limit`/`offset` are optional."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('data is an array of invoice summaries', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "  if (json.data.length > 0) {",
+                  "    pm.expect(json.data[0]).to.include.all.keys('id', 'invoice_number', 'customer_id', 'status', 'total', 'balance_due');",
+                  "  }",
+                  "});",
+                  "// Every NeoAccounting v1 response is { data: ... } on success or { error: \"...\" } on failure \u2014",
+                  "// this checks the response matches that envelope no matter which branch it took.",
+                  "pm.test('Response matches documented envelope', function () {",
+                  "  const json = pm.response.json();",
+                  "  if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    pm.expect(json).to.have.property('data');",
+                  "  } else {",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json.error).to.be.a('string');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 OK - sample list",
+              "originalRequest": {},
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"data\": [\n    {\n      \"id\": \"9d8e22b8-f29e-45c0-9d9f-cb171e730cf2\",\n      \"invoice_number\": \"INV-000001\",\n      \"customer_id\": \"05dfee68-f504-4694-83b0-471c251676ab\",\n      \"status\": \"sent\",\n      \"total\": \"1000\",\n      \"balance_due\": \"1000\",\n      \"invoice_date\": \"2026-09-01T00:00:00.000Z\"\n    }\n  ]\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Create Invoice",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data.id) {",
+                  "    pm.collectionVariables.set('invoice_id', json.data.id);",
+                  "    console.log('Saved invoice_id =', json.data.id);",
+                  "  }",
+                  "}",
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });",
+                  "pm.test('data.id is a string', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data).to.have.property('id').that.is.a('string');",
+                  "});",
+                  "// Every NeoAccounting v1 response is { data: ... } on success or { error: \"...\" } on failure \u2014",
+                  "// this checks the response matches that envelope no matter which branch it took.",
+                  "pm.test('Response matches documented envelope', function () {",
+                  "  const json = pm.response.json();",
+                  "  if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    pm.expect(json).to.have.property('data');",
+                  "  } else {",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json.error).to.be.a('string');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"header\": {\n    \"customer_id\": \"{{customer_id}}\",\n    \"invoice_date\": \"2026-09-10\",\n    \"due_date\": \"2026-09-24\",\n    \"status\": \"sent\",\n    \"notes\": \"Thank you for your business\",\n    \"salesperson\": \"Aditya\"\n  },\n  \"lines\": [\n    { \"description\": \"Consulting\", \"quantity\": 1, \"rate\": 1000 }\n  ],\n  \"taxPercent\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/invoices",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "invoices"
+              ]
+            },
+            "description": "customer_id is required; each line needs item_id or description, plus quantity and rate. status accepts draft or sent. On success (201), saves the new id into {{invoice_id}} for the rest of this collection."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {},
+              "status": "Created",
+              "code": 201,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"data\": {\n    \"id\": \"9d8e22b8-f29e-45c0-9d9f-cb171e730cf2\"\n  }\n}",
+              "_postman_previewlanguage": "json"
+            },
+            {
+              "name": "400 Bad Request - missing customer_id",
+              "originalRequest": {},
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"error\": \"customer_id is required\"\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Get Invoice",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/invoices/{{invoice_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "invoices",
+                "{{invoice_id}}"
+              ]
+            },
+            "description": "Returns { header, lines, taxPercent } for one invoice."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('data.header/lines/taxPercent match the documented shape', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data).to.have.property('header');",
+                  "  pm.expect(json.data.header).to.include.all.keys(",
+                  "    'id', 'invoice_number', 'customer_id', 'status', 'subtotal', 'tax_total', 'total', 'balance_due'",
+                  "  );",
+                  "  pm.expect(json.data).to.have.property('lines').that.is.an('array');",
+                  "  pm.expect(json.data).to.have.property('taxPercent');",
+                  "});",
+                  "// Every NeoAccounting v1 response is { data: ... } on success or { error: \"...\" } on failure \u2014",
+                  "// this checks the response matches that envelope no matter which branch it took.",
+                  "pm.test('Response matches documented envelope', function () {",
+                  "  const json = pm.response.json();",
+                  "  if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    pm.expect(json).to.have.property('data');",
+                  "  } else {",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json.error).to.be.a('string');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {},
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"data\": {\n    \"header\": {\n      \"id\": \"9d8e22b8-f29e-45c0-9d9f-cb171e730cf2\",\n      \"organization_id\": \"bb52a4a8-54b2-4ccf-947a-4a2555136760\",\n      \"invoice_number\": \"INV-000002\",\n      \"customer_id\": \"05dfee68-f504-4694-83b0-471c251676ab\",\n      \"invoice_date\": \"2026-09-01T00:00:00.000Z\",\n      \"due_date\": null,\n      \"status\": \"sent\",\n      \"subtotal\": \"1000\",\n      \"tax_total\": \"0\",\n      \"total\": \"1000\",\n      \"balance_due\": \"1000\",\n      \"notes\": null,\n      \"created_at\": \"2026-09-10T18:32:34.691Z\",\n      \"salesperson\": null,\n      \"sales_order_id\": null\n    },\n    \"lines\": [\n      {\n        \"id\": \"4215840e-36df-4668-91dd-be7f937e22a6\",\n        \"invoice_id\": \"9d8e22b8-f29e-45c0-9d9f-cb171e730cf2\",\n        \"item_id\": null,\n        \"description\": \"Consulting\",\n        \"quantity\": \"1\",\n        \"rate\": \"1000\",\n        \"amount\": \"1000\"\n      }\n    ],\n    \"taxPercent\": 0\n  }\n}",
+              "_postman_previewlanguage": "json"
+            },
+            {
+              "name": "404 Not Found",
+              "originalRequest": {},
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"error\": \"Not found\"\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Update Invoice",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"header\": {\n    \"notes\": \"Updated via API\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/invoices/{{invoice_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "invoices",
+                "{{invoice_id}}"
+              ]
+            },
+            "description": "Same body shape as create. Any header field left out is unchanged. If you include \"lines\", it fully replaces the invoice's existing line items. balance_due is never set directly here \u2014 only payments/credit memos and their reversals change it."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('data.id is present', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data).to.have.property('id');",
+                  "});",
+                  "// Every NeoAccounting v1 response is { data: ... } on success or { error: \"...\" } on failure \u2014",
+                  "// this checks the response matches that envelope no matter which branch it took.",
+                  "pm.test('Response matches documented envelope', function () {",
+                  "  const json = pm.response.json();",
+                  "  if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    pm.expect(json).to.have.property('data');",
+                  "  } else {",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json.error).to.be.a('string');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {},
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"data\": {\n    \"id\": \"9d8e22b8-f29e-45c0-9d9f-cb171e730cf2\"\n  }\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Receipts",
+      "item": [
+        {
+          "name": "List Receipts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/receipts?limit=20&offset=0",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Lists receipts (payments received) for the organization."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('data is an array of receipt summaries', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "  if (json.data.length > 0) {",
+                  "    pm.expect(json.data[0]).to.include.all.keys('id', 'customer_id', 'amount', 'status', 'payment_date');",
+                  "  }",
+                  "});",
+                  "// Every NeoAccounting v1 response is { data: ... } on success or { error: \"...\" } on failure \u2014",
+                  "// this checks the response matches that envelope no matter which branch it took.",
+                  "pm.test('Response matches documented envelope', function () {",
+                  "  const json = pm.response.json();",
+                  "  if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    pm.expect(json).to.have.property('data');",
+                  "  } else {",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json.error).to.be.a('string');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 OK - sample list",
+              "originalRequest": {},
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"data\": [\n    {\n      \"id\": \"b85df141-9739-45bc-8b64-099704255520\",\n      \"customer_id\": \"05dfee68-f504-4694-83b0-471c251676ab\",\n      \"amount\": \"1500\",\n      \"status\": \"paid\",\n      \"payment_date\": \"2026-09-10T00:00:00.000Z\"\n    }\n  ]\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Create Receipt",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data.id) {",
+                  "    pm.collectionVariables.set('receipt_id', json.data.id);",
+                  "    console.log('Saved receipt_id =', json.data.id);",
+                  "  }",
+                  "}",
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });",
+                  "pm.test('data.id is a string', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data).to.have.property('id').that.is.a('string');",
+                  "});",
+                  "// Every NeoAccounting v1 response is { data: ... } on success or { error: \"...\" } on failure \u2014",
+                  "// this checks the response matches that envelope no matter which branch it took.",
+                  "pm.test('Response matches documented envelope', function () {",
+                  "  const json = pm.response.json();",
+                  "  if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    pm.expect(json).to.have.property('data');",
+                  "  } else {",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json.error).to.be.a('string');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"amount\": 1000,\n  \"bank_account_id\": \"{{bank_account_id}}\",\n  \"payment_date\": \"2026-09-10\",\n  \"payment_mode\": \"bank_transfer\",\n  \"reference_number\": \"TXN-88213\",\n  \"notes\": \"Wire received\",\n  \"status\": \"paid\",\n  \"allocations\": [\n    { \"invoice_id\": \"{{invoice_id}}\", \"amount\": 1000 }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/receipts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts"
+              ]
+            },
+            "description": "customer_id, amount and bank_account_id are required. allocations is optional and doesn't have to add up to the full amount \u2014 leftover is unapplied and can be applied later via .../apply. status is draft or paid; allocations only reduce an invoice's balance_due when status is paid. On success (201), saves the new id into {{receipt_id}}.\n\nThis example applies the full amount to {{invoice_id}} \u2014 run \"Create Invoice\" first, or clear the allocations array to record an unapplied/excess payment instead."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {},
+              "status": "Created",
+              "code": 201,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"data\": {\n    \"id\": \"b85df141-9739-45bc-8b64-099704255520\"\n  }\n}",
+              "_postman_previewlanguage": "json"
+            },
+            {
+              "name": "400 Bad Request - missing bank_account_id",
+              "originalRequest": {},
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"error\": \"bank_account_id is required\"\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Get Receipt",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/receipts/{{receipt_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts",
+                "{{receipt_id}}"
+              ]
+            },
+            "description": "Returns the receipt header plus its current allocations."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('data.id is present', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data).to.have.property('id');",
+                  "});",
+                  "// Every NeoAccounting v1 response is { data: ... } on success or { error: \"...\" } on failure \u2014",
+                  "// this checks the response matches that envelope no matter which branch it took.",
+                  "pm.test('Response matches documented envelope', function () {",
+                  "  const json = pm.response.json();",
+                  "  if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    pm.expect(json).to.have.property('data');",
+                  "  } else {",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json.error).to.be.a('string');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Receipt",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference_number\": \"TXN-88213-corrected\",\n  \"notes\": \"Corrected ref #\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/receipts/{{receipt_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts",
+                "{{receipt_id}}"
+              ]
+            },
+            "description": "Only payment_date, payment_mode, reference_number and notes can be changed here. amount, allocations and status can't \u2014 those affect invoice balances and the GL journal, so they go through the Apply/Unapply actions below instead."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('data.id is present', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data).to.have.property('id');",
+                  "});",
+                  "// Every NeoAccounting v1 response is { data: ... } on success or { error: \"...\" } on failure \u2014",
+                  "// this checks the response matches that envelope no matter which branch it took.",
+                  "pm.test('Response matches documented envelope', function () {",
+                  "  const json = pm.response.json();",
+                  "  if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    pm.expect(json).to.have.property('data');",
+                  "  } else {",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json.error).to.be.a('string');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply Receipt to Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invoice_id\": \"{{invoice_id}}\",\n  \"amount\": 500\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/receipts/{{receipt_id}}/apply",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts",
+                "{{receipt_id}}",
+                "apply"
+              ]
+            },
+            "description": "Applies more of an already-Paid receipt to one invoice \u2014 use this when the receipt has unapplied headroom (recorded with no allocations at all, or with allocations that didn't use the full amount). amount can't exceed what's currently unapplied on the receipt. Applying again to the same invoice merges into its existing allocation rather than duplicating it.\n\nErrors you may see: \"Only <n> is unapplied on this receipt.\", \"Only a Paid receipt can be applied to an invoice.\""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 (or 400 for a documented error case)', function () {",
+                  "  pm.expect([200, 400]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('On success, data.id is present', function () {",
+                  "  if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "  }",
+                  "});",
+                  "// Every NeoAccounting v1 response is { data: ... } on success or { error: \"...\" } on failure \u2014",
+                  "// this checks the response matches that envelope no matter which branch it took.",
+                  "pm.test('Response matches documented envelope', function () {",
+                  "  const json = pm.response.json();",
+                  "  if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    pm.expect(json).to.have.property('data');",
+                  "  } else {",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json.error).to.be.a('string');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {},
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"data\": {\n    \"id\": \"b85df141-9739-45bc-8b64-099704255520\"\n  }\n}",
+              "_postman_previewlanguage": "json"
+            },
+            {
+              "name": "400 Bad Request - nothing left to apply",
+              "originalRequest": {},
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"error\": \"Only 0 is unapplied on this receipt.\"\n}",
+              "_postman_previewlanguage": "json"
+            },
+            {
+              "name": "400 Bad Request - receipt not Paid",
+              "originalRequest": {},
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"error\": \"Only a Paid receipt can be applied to an invoice.\"\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Unapply Receipt from Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invoice_id\": \"{{invoice_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/receipts/{{receipt_id}}/unapply",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "receipts",
+                "{{receipt_id}}",
+                "unapply"
+              ]
+            },
+            "description": "Removes this receipt's allocation against the given invoice only \u2014 the receipt itself and any other invoices it's applied to are untouched. The invoice's balance_due goes back up by exactly what had been applied, and that amount becomes available on the receipt again via Apply.\n\nError you may see: \"This receipt isn't applied to that invoice.\"\n\nNote: there's no DELETE for a receipt in this v1 API \u2014 removing one outright (via the app or the internal entities API) now correctly reverses every allocation it had, restoring every invoice it touched."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 (or 400 for a documented error case)', function () {",
+                  "  pm.expect([200, 400]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('On success, data.id is present', function () {",
+                  "  if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "  }",
+                  "});",
+                  "// Every NeoAccounting v1 response is { data: ... } on success or { error: \"...\" } on failure \u2014",
+                  "// this checks the response matches that envelope no matter which branch it took.",
+                  "pm.test('Response matches documented envelope', function () {",
+                  "  const json = pm.response.json();",
+                  "  if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    pm.expect(json).to.have.property('data');",
+                  "  } else {",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json.error).to.be.a('string');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {},
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"data\": {\n    \"id\": \"b85df141-9739-45bc-8b64-099704255520\"\n  }\n}",
+              "_postman_previewlanguage": "json"
+            },
+            {
+              "name": "400 Bad Request - no such allocation",
+              "originalRequest": {},
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"error\": \"This receipt isn't applied to that invoice.\"\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

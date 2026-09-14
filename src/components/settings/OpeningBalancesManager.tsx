@@ -205,7 +205,7 @@ export default function OpeningBalancesManager({
     return (
       <div className="card flex flex-col items-center justify-center gap-4 py-16 text-center">
         <p className="max-w-sm text-sm text-gray-500">
-          Record the account balances you were carrying as of the day you switched to NeoAccountingZ, so your
+          Record the account balances you were carrying as of the day you switched to NeoAccounting, so your
           books start accurate from day one.
         </p>
         {canManage && (
@@ -232,7 +232,7 @@ export default function OpeningBalancesManager({
               onChange={(e) => setMigrationDateInput(e.target.value)}
             />
             <p className="mt-1 text-xs text-gray-400">
-              The date you switched to NeoAccountingZ — the Opening Balance journal entry is dated here.
+              The date you switched to NeoAccounting — the Opening Balance journal entry is dated here.
             </p>
           </div>
         </div>

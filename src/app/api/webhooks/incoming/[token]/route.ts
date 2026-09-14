@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool, queryOne } from "@/lib/db";
 
 // Public endpoint — deliberately not behind requireActiveContext/getApiOrgContext, since the
-// whole point of an incoming webhook is that an external system with no NeoAccountingZ
+// whole point of an incoming webhook is that an external system with no NeoAccounting
 // session calls it directly. The token in the URL is what stands in for auth here.
 
 interface WebhookRow {

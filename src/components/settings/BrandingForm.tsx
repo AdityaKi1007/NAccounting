@@ -70,7 +70,7 @@ export default function BrandingForm({ organization }: { organization: Org }) {
       <div className="card space-y-4 p-6">
         <h2 className="text-sm font-semibold text-ink-800">Appearance</h2>
         <p className="text-xs text-gray-500">
-          Choose how NeoAccountingZ looks for everyone in this organization.
+          Choose how NeoAccounting looks for everyone in this organization.
         </p>
         <div className="grid grid-cols-2 gap-3 sm:max-w-md">
           {[

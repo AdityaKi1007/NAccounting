@@ -45,7 +45,7 @@ export default function Topbar({ orgName }: { orgName: string }) {
         <div className="flex h-7 w-7 items-center justify-center rounded-md bg-brand-600 text-sm font-bold text-white">
           N
         </div>
-        <span className="text-[15px] font-semibold text-white">NeoAccountingZ</span>
+        <span className="text-[15px] font-semibold text-white">NeoAccounting</span>
       </div>
 
       <GlobalSearch />

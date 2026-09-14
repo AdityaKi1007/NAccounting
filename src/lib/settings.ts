@@ -124,7 +124,7 @@ export const settingsGroups: SettingsGroup[] = [
       { slug: "general", label: "General", description: "Your plan, user and API limits, and organization defaults.", view: "general-info" },
       { slug: "currencies", label: "Currencies", description: "Currencies you transact in and exchange rates.", view: "currencies-list" },
       { slug: "payment-terms", label: "Payment Terms", description: "Default due-date terms for invoices and bills.", view: "payment-terms-list" },
-      { slug: "opening-balances", label: "Opening Balances", description: "Starting balances when you switched to NeoAccountingZ.", view: "opening-balances" },
+      { slug: "opening-balances", label: "Opening Balances", description: "Starting balances when you switched to NeoAccounting.", view: "opening-balances" },
       { slug: "reminders", label: "Reminders", description: "Automatic payment reminder schedules.", view: "reminders" },
       { slug: "customer-portal", label: "Customer Portal", description: "What customers can see and do online." },
       { slug: "vendor-portal", label: "Vendor Portal", description: "What vendors can see and do online." },

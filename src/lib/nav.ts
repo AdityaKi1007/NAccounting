@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Home,
+  LayoutDashboard,
   Package,
   ShoppingCart,
   ShoppingBag,
@@ -27,6 +28,7 @@ export interface NavItem {
 
 export const nav: NavItem[] = [
   { label: "Home", href: "/", icon: Home },
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   {
     label: "Billing Items",
     icon: Package,
@@ -74,6 +76,7 @@ export const nav: NavItem[] = [
       { label: "Buildings", href: "/buildings" },
       { label: "Units", href: "/inventory" },
       { label: "Legal Entities", href: "/legal-entities" },
+      { label: "Other Charges", href: "/other-charges" },
     ],
   },
   {

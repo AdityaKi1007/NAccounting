@@ -8,6 +8,21 @@ export function formatCurrency(value: unknown, currency = "AED") {
   }).format(n);
 }
 
+/** "AED 48.62M" / "AED 12.5K" style compact notation — used only on the CFO Dashboard, where
+ * space is tight and figures are large; every other report keeps formatCurrency's full
+ * precision for exactness, so this is deliberately not a drop-in replacement for it. */
+export function formatCompactCurrency(value: unknown, currency = "AED") {
+  const n = typeof value === "number" ? value : parseFloat(String(value ?? 0));
+  if (!Number.isFinite(n)) return "-";
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  let compact: string;
+  if (abs >= 1_000_000) compact = `${(abs / 1_000_000).toFixed(2)}M`;
+  else if (abs >= 1_000) compact = `${(abs / 1_000).toFixed(1)}K`;
+  else compact = abs.toFixed(2);
+  return `${sign}${currency} ${compact}`;
+}
+
 export function formatDate(value: unknown) {
   if (!value) return "-";
   const d = new Date(String(value));

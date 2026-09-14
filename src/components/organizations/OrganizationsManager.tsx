@@ -192,7 +192,7 @@ export default function OrganizationsManager({
           <div>
             <h2 className="text-xl font-semibold text-ink-800">Welcome {greetingName},</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Let us know where your business is &amp; we&apos;ll optimize NeoAccountingZ accordingly!
+              Let us know where your business is &amp; we&apos;ll optimize NeoAccounting accordingly!
             </p>
           </div>
 

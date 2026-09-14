@@ -45,7 +45,7 @@ export default async function AccountSuspendedPage() {
           <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-brand-600 text-lg font-bold text-white">
             N
           </div>
-          <h1 className="text-xl font-semibold text-white">NeoAccountingZ</h1>
+          <h1 className="text-xl font-semibold text-white">NeoAccounting</h1>
         </div>
         <div className="card space-y-4 p-6">
           <div>

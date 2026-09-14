@@ -53,7 +53,7 @@ export default function GeneralSettingsInfo({
         <div className="mb-4 flex items-start gap-2">
           <Info size={16} className="mt-0.5 shrink-0 text-gray-400" />
           <p className="text-sm text-gray-500">
-            These are set for your organization by NeoAccountingZ and can&apos;t be changed here.
+            These are set for your organization by NeoAccounting and can&apos;t be changed here.
             Contact support if you need them adjusted.
           </p>
         </div>

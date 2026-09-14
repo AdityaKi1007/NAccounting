@@ -1,4 +1,4 @@
-# NeoAccountingZ
+# NeoAccounting
 
 A multi-tenant SaaS accounting application (Next.js 14 + PostgreSQL), modeled on the
 menu structure of Zoho Books: **Items, Sales, Purchases, Time Tracking, Banking,

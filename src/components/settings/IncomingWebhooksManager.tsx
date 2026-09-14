@@ -172,7 +172,7 @@ export default function IncomingWebhooksManager({
           <h2 className="text-base font-semibold text-ink-800">Receive Updates from External Applications</h2>
           <p className="max-w-md text-sm text-gray-500">
             A webhook lets you post messages to a specific URL when certain activities happen. You can use an
-            incoming webhook to post updates from your other applications to NeoAccountingZ.
+            incoming webhook to post updates from your other applications to NeoAccounting.
           </p>
           <button onClick={openNew} className="btn-primary">
             Create Incoming Webhook

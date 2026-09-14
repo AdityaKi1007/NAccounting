@@ -12,7 +12,7 @@ export async function buildImportTemplate(entity: string): Promise<Buffer | null
   if (!cfg) return null;
 
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "NeoAccountingZ";
+  workbook.creator = "NeoAccounting";
   workbook.created = new Date();
 
   const sheet = workbook.addWorksheet(cfg.label.slice(0, 31) || "Import");

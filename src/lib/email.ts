@@ -276,10 +276,10 @@ export async function sendTestEmail(cfg: TransportConfig, to: string): Promise<v
   await transporter.sendMail({
     from: fromHeader(cfg),
     to,
-    subject: "NeoAccountingZ test email",
+    subject: "NeoAccounting test email",
     text:
-      "This is a test email from NeoAccountingZ, confirming your email settings are working " +
+      "This is a test email from NeoAccounting, confirming your email settings are working " +
       "correctly. If you received this, invoices, receipts and other emails sent from " +
-      "NeoAccountingZ will use this same provider.",
+      "NeoAccounting will use this same provider.",
   });
 }

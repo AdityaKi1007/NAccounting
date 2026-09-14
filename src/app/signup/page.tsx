@@ -47,7 +47,7 @@ export default function SignupPage() {
             N
           </div>
           <h1 className="text-xl font-semibold text-white">Create your organization</h1>
-          <p className="mt-1 text-sm text-gray-400">Start your free NeoAccountingZ workspace</p>
+          <p className="mt-1 text-sm text-gray-400">Start your free NeoAccounting workspace</p>
         </div>
         <form onSubmit={onSubmit} className="card space-y-4 p-6">
           {error && (

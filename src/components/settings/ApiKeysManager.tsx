@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronDown, Code2, Copy, KeyRound, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Code2, Copy, FileDown, KeyRound, Plus, Trash2 } from "lucide-react";
 import Modal from "@/components/ui/Modal";
 import { formatDateTime } from "@/lib/format";
+import { generatePdfBlob, downloadPdfBlob } from "@/lib/pdf-export";
 
 interface ApiKeyRow {
   id: string;
@@ -561,6 +562,25 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
   // Which REST API Reference row has its request/response body expanded, keyed by
   // "METHOD path" — at most one open at a time keeps the reference list scannable.
   const [expandedEndpoint, setExpandedEndpoint] = useState<string | null>(null);
+  // "Download PDF" renders a separate, always-fully-expanded copy of the reference (every
+  // endpoint's request/response body, not just whichever one is open in the accordion above)
+  // off-screen via apiRefPrintRef, then feeds that element to the same html2canvas+jsPDF
+  // pipeline the Invoice/Sales Order/Statement "Download PDF" buttons already use (see
+  // src/lib/pdf-export.ts) — a reference doc where only one endpoint's body was visible
+  // wouldn't be much of a reference.
+  const apiRefPrintRef = useRef<HTMLDivElement>(null);
+  const [downloadingApiRef, setDownloadingApiRef] = useState(false);
+
+  async function downloadApiReferencePdf() {
+    if (!apiRefPrintRef.current) return;
+    setDownloadingApiRef(true);
+    try {
+      const blob = await generatePdfBlob(apiRefPrintRef.current);
+      downloadPdfBlob(blob, "NeoAccounting-API-Reference.pdf");
+    } finally {
+      setDownloadingApiRef(false);
+    }
+  }
 
   function openNew() {
     setName("");
@@ -627,7 +647,7 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
           <h1 className="text-lg font-semibold text-ink-800">API Keys</h1>
           <p className="mt-0.5 text-sm text-gray-500">
             Let external systems send invoices, receipts, customers, vendors, sales orders and credit memos into
-            NeoAccountingZ over REST.
+            NeoAccounting over REST.
           </p>
         </div>
         <button onClick={openNew} className="btn-primary">
@@ -711,9 +731,21 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
       )}
 
       <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4">
-        <p className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-ink-800">
-          <Code2 size={14} className="text-gray-400" /> REST API Reference
-        </p>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-ink-800">
+            <Code2 size={14} className="text-gray-400" /> REST API Reference
+          </p>
+          <button
+            type="button"
+            onClick={downloadApiReferencePdf}
+            disabled={downloadingApiRef}
+            className="btn-secondary shrink-0 !py-1 text-xs"
+            title="Download the full API reference (every endpoint, request and response body) as a PDF"
+          >
+            <FileDown size={14} />
+            {downloadingApiRef ? "Preparing PDF..." : "Download PDF"}
+          </button>
+        </div>
         <p className="mb-3 text-xs text-gray-500">
           Authenticate every request with{" "}
           <code className="rounded bg-gray-100 px-1 py-0.5">Authorization: Bearer &lt;your key&gt;</code> (or an{" "}
@@ -766,6 +798,51 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Off-screen, always-fully-expanded copy of the reference above, rendered only as the
+          source for downloadApiReferencePdf's html2canvas snapshot — never shown on the page.
+          Positioned far off-canvas (not display:none/hidden) because html2canvas needs the
+          element actually laid out to capture it. Fixed width keeps every PDF the same layout
+          regardless of the viewer's own window size. */}
+      <div className="pointer-events-none absolute left-[-99999px] top-0 w-[760px]" aria-hidden="true">
+        <div ref={apiRefPrintRef} className="bg-white p-8">
+          <p className="mb-1 text-lg font-bold text-ink-900">NeoAccounting REST API Reference</p>
+          <p className="mb-5 text-xs text-gray-500">
+            Authenticate every request with <code className="rounded bg-gray-100 px-1 py-0.5">Authorization: Bearer &lt;your key&gt;</code>{" "}
+            (or an <code className="rounded bg-gray-100 px-1 py-0.5">X-API-Key</code> header). Every endpoint is scoped to the
+            calling API key&apos;s own organization.
+          </p>
+          <div className="space-y-4">
+            {ENDPOINTS.map((e) => (
+              <div key={`${e.method} ${e.path}`} className="rounded-md border border-gray-200">
+                <div className="flex items-center gap-3 px-2.5 py-2">
+                  <span className={`w-14 shrink-0 rounded px-1.5 py-0.5 text-center font-mono text-xs font-semibold ${methodColor[e.method]}`}>
+                    {e.method}
+                  </span>
+                  <code className="w-56 shrink-0 text-xs text-ink-700">{e.path}</code>
+                  <span className="flex-1 text-xs text-gray-500">{e.note}</span>
+                </div>
+                <div className="space-y-3 border-t border-gray-100 bg-gray-50 px-3 py-3">
+                  {e.request && (
+                    <div>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Request Body</p>
+                      <pre className="overflow-x-auto rounded bg-ink-900 p-2.5 text-[11px] leading-relaxed text-gray-100">
+                        <code>{e.request}</code>
+                      </pre>
+                    </div>
+                  )}
+                  <div>
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Response Body</p>
+                    <pre className="overflow-x-auto rounded bg-ink-900 p-2.5 text-[11px] leading-relaxed text-gray-100">
+                      <code>{e.response}</code>
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
