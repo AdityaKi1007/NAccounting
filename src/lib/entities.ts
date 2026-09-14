@@ -73,6 +73,12 @@ export interface EntityDef {
    * created from an invoice (POST /api/invoices/[id]/credit-notes|debit-notes) and only ever
    * reversed via their own /void endpoint, never edited or deleted directly. */
   restrictedCrud?: boolean;
+  /** When true, only owner/admin/Super-Admin members may create, edit or delete rows of this
+   * entity through the generic /api/entities routes (enforced server-side in route.ts and
+   * [id]/route.ts, not just by hiding the UI — see the "roles" entity, added for the Access
+   * Matrix feature, 2026-09-14). Reads are unrestricted; the settings page itself is what
+   * actually keeps ordinary staff from finding the screen in the first place. */
+  adminOnly?: boolean;
   /** Overrides the list page's "+ New" button target for an entity that's restrictedCrud
    * (so the generic `/${key}/new` route, which wouldn't work anyway, is never used) but that
    * still has a real, working creation flow reachable through a bespoke entry point — e.g.
@@ -1306,6 +1312,7 @@ export const entities: Record<string, EntityDef> = {
     label: "Role",
     labelPlural: "Roles",
     module: "Settings",
+    adminOnly: true,
     kind: "flat",
     titleField: "name",
     orderBy: "created_at asc",

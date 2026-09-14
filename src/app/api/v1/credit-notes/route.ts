@@ -18,6 +18,8 @@ import { getDisabledFields, filterConfigurableFields } from "@/lib/api-field-con
 //     taxPercent?: 5,
 //     legal_entity_id?: "...", // API-only — no field for this in the app's own credit-memo UI
 //                               // (see migrations/1779000000000_legal_entity_on_documents.js)
+//     crm_cn_no?: "...",       // API-only — external CRM system's own reference number for
+//                               // this credit note (see migrations/1783000000000_crm_cn_no.js)
 //     lines: [ { item_id?: "...", description: "...", quantity: 1, rate: 100 }, ... ]
 //   }
 export async function GET(req: NextRequest) {
@@ -53,6 +55,7 @@ export async function POST(req: NextRequest) {
       reason: body.reason as string | undefined,
       taxPercent: body.taxPercent as number | undefined,
       legal_entity_id: body.legal_entity_id as string | undefined,
+      crm_cn_no: body.crm_cn_no as string | undefined,
       lines,
     },
     { apiKeyId: ctx.apiKeyId }

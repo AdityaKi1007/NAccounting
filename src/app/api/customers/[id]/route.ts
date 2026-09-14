@@ -111,7 +111,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  const accessError = await moduleAccessErrorResponse(ctx, "customers", "write");
+  const accessError = await moduleAccessErrorResponse(ctx, "customers", "delete");
   if (accessError) return accessError;
 
   const auditOldRow = await queryOne(`SELECT * FROM customers WHERE organization_id = $1 AND id = $2`, [

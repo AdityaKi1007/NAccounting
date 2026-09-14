@@ -37,6 +37,11 @@ export async function POST(req: NextRequest, { params }: { params: { entity: str
       { status: 400 }
     );
   }
+  // adminOnly entities (e.g. "roles") aren't nav modules, so moduleAccessErrorResponse below
+  // doesn't gate them at all — this is a separate, explicit check for that smaller set.
+  if (entity.adminOnly && ctx.role !== "owner" && ctx.role !== "admin" && !ctx.isSuperAdmin) {
+    return NextResponse.json({ error: "Only owners and admins can manage this." }, { status: 403 });
+  }
   const accessError = await moduleAccessErrorResponse(ctx, params.entity, "write");
   if (accessError) return accessError;
 

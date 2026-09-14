@@ -32,6 +32,13 @@ export interface NoteBody {
    * /api/v1/credit-notes/[id]/route.ts's own comment), and the column only exists on
    * credit_notes, not debit_notes, so this is only ever written when kind === "credit". */
   legal_entity_id?: string | null;
+  /** API-only (see migrations/1783000000000_crm_cn_no.js) — an external CRM system's own
+   * reference number for this credit note, same free-text/no-uniqueness convention as
+   * crm_inv_no/crm_so_no/crm_receipt_no/crm_customer_no/crm_vendor_no. Same scoping as
+   * legal_entity_id immediately above: create-only (no v1 update endpoint for credit notes at
+   * all), and only ever written when kind === "credit" (the column doesn't exist on
+   * debit_notes). */
+  crm_cn_no?: string | null;
 }
 
 export interface NoteActionResult {
@@ -60,13 +67,15 @@ export async function listCreditOrDebitNotes(kind: "credit" | "debit", orgId: st
   const table = kind === "credit" ? "credit_notes" : "debit_notes";
   const dateField = kind === "credit" ? "credit_note_date" : "debit_note_date";
   const numberField = kind === "credit" ? "credit_note_number" : "debit_note_number";
-  // legal_entity_id only exists on credit_notes (see
-  // migrations/1779000000000_legal_entity_on_documents.js) — selected as a literal null for
-  // debit notes so both kinds return the same column shape.
+  // legal_entity_id and crm_cn_no only exist on credit_notes (see
+  // migrations/1779000000000_legal_entity_on_documents.js and
+  // migrations/1783000000000_crm_cn_no.js) — selected as a literal null for debit notes so
+  // both kinds return the same column shape.
   const legalEntityColumn = kind === "credit" ? "legal_entity_id" : "NULL AS legal_entity_id";
+  const crmCnNoColumn = kind === "credit" ? "crm_cn_no" : "NULL AS crm_cn_no";
   const result = await pool.query(
     `SELECT id, organization_id, ${numberField} AS number, customer_id, invoice_id, ${dateField} AS note_date, status,
-            subtotal, tax_total, total, balance_applied, reference_number, reason, created_at, ${legalEntityColumn}
+            subtotal, tax_total, total, balance_applied, reference_number, reason, created_at, ${legalEntityColumn}, ${crmCnNoColumn}
        FROM ${table} WHERE organization_id = $1 ORDER BY created_at DESC`,
     [orgId]
   );
@@ -82,10 +91,11 @@ export async function getCreditOrDebitNote(kind: "credit" | "debit", orgId: stri
   const dateField = kind === "credit" ? "credit_note_date" : "debit_note_date";
   const numberField = kind === "credit" ? "credit_note_number" : "debit_note_number";
   const legalEntityColumn = kind === "credit" ? "legal_entity_id" : "NULL AS legal_entity_id";
+  const crmCnNoColumn = kind === "credit" ? "crm_cn_no" : "NULL AS crm_cn_no";
 
   const header = await queryOne<Record<string, unknown>>(
     `SELECT id, organization_id, ${numberField} AS number, customer_id, invoice_id, ${dateField} AS note_date, status,
-            subtotal, tax_total, total, balance_applied, reference_number, reason, created_at, ${legalEntityColumn}
+            subtotal, tax_total, total, balance_applied, reference_number, reason, created_at, ${legalEntityColumn}, ${crmCnNoColumn}
        FROM ${table} WHERE id = $1 AND organization_id = $2`,
     [noteId, orgId]
   );
@@ -184,13 +194,14 @@ export async function createCreditOrDebitNote(
     // `total`.
     const balanceApplied = round2(Math.abs(currentDue - newDue));
 
-    // legal_entity_id only exists on the credit_notes table (see
-    // migrations/1779000000000_legal_entity_on_documents.js) — debit_notes never got the
-    // column, since debit notes aren't part of the v1 API surface this was requested for —
-    // so it's appended to the column/value lists only when kind === "credit" rather than
-    // being a plain always-present column like the rest of this INSERT.
-    const legalEntityColumn = kind === "credit" ? ", legal_entity_id" : "";
-    const legalEntityPlaceholder = kind === "credit" ? ", $12" : "";
+    // legal_entity_id and crm_cn_no only exist on the credit_notes table (see
+    // migrations/1779000000000_legal_entity_on_documents.js and
+    // migrations/1783000000000_crm_cn_no.js) — debit_notes never got either column, since
+    // debit notes aren't part of the v1 API surface this was requested for — so both are
+    // appended to the column/value lists only when kind === "credit" rather than being plain
+    // always-present columns like the rest of this INSERT.
+    const legalEntityColumn = kind === "credit" ? ", legal_entity_id, crm_cn_no" : "";
+    const legalEntityPlaceholder = kind === "credit" ? ", $12, $13" : "";
     const headerResult = await client.query(
       `INSERT INTO ${table}
          (organization_id, ${numberField}, customer_id, invoice_id, ${dateField}, status, subtotal, tax_total, total, reference_number, reason, balance_applied${legalEntityColumn})
@@ -208,7 +219,7 @@ export async function createCreditOrDebitNote(
         body.reference_number || null,
         body.reason || null,
         balanceApplied,
-        ...(kind === "credit" ? [body.legal_entity_id || null] : []),
+        ...(kind === "credit" ? [body.legal_entity_id || null, body.crm_cn_no || null] : []),
       ]
     );
     const noteId = headerResult.rows[0].id as string;

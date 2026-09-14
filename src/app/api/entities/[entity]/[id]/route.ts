@@ -43,6 +43,9 @@ export async function PATCH(
   if (entity.restrictedCrud) {
     return NextResponse.json({ error: `${entity.labelPlural} can't be edited directly.` }, { status: 400 });
   }
+  if (entity.adminOnly && ctx.role !== "owner" && ctx.role !== "admin" && !ctx.isSuperAdmin) {
+    return NextResponse.json({ error: "Only owners and admins can manage this." }, { status: 403 });
+  }
   const accessError = await moduleAccessErrorResponse(ctx, params.entity, "write");
   if (accessError) return accessError;
 
@@ -156,7 +159,10 @@ export async function DELETE(
       { status: 400 }
     );
   }
-  const accessError = await moduleAccessErrorResponse(ctx, params.entity, "write");
+  if (entity.adminOnly && ctx.role !== "owner" && ctx.role !== "admin" && !ctx.isSuperAdmin) {
+    return NextResponse.json({ error: "Only owners and admins can manage this." }, { status: 403 });
+  }
+  const accessError = await moduleAccessErrorResponse(ctx, params.entity, "delete");
   if (accessError) return accessError;
 
   // A deleted Payment Made's own auto-journal is cleaned up for free by ON DELETE CASCADE

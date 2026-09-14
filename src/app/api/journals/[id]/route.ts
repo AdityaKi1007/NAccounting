@@ -124,7 +124,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  const accessError = await moduleAccessErrorResponse(ctx, "manual-journals", "write");
+  const accessError = await moduleAccessErrorResponse(ctx, "manual-journals", "delete");
   if (accessError) return accessError;
   await pool.query(`DELETE FROM manual_journals WHERE organization_id = $1 AND id = $2`, [ctx.orgId, params.id]);
   return NextResponse.json({ ok: true });

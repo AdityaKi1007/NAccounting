@@ -23,11 +23,17 @@ export function formatCompactCurrency(value: unknown, currency = "AED") {
   return `${sign}${currency} ${compact}`;
 }
 
+// DD/MM/YYYY everywhere, by request — "en-GB" + all-numeric fields is what actually produces
+// slash-separated DD/MM/YYYY (as opposed to "en-GB" with month:"short", which was the previous
+// "14 Sep 2026" style). Every one of this app's ~45 formatDate call sites and 7 formatDateTime
+// call sites (list/table views, detail pages, reports, and — since PDFs are a straight
+// html2canvas screenshot of the live DOM, see src/lib/pdf-export.ts — every printed/PDF'd
+// document too) picks this up automatically from this one place.
 export function formatDate(value: unknown) {
   if (!value) return "-";
   const d = new Date(String(value));
   if (Number.isNaN(d.getTime())) return String(value);
-  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(d);
+  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
 }
 
 export function formatDateTime(value: unknown) {
@@ -36,7 +42,7 @@ export function formatDateTime(value: unknown) {
   if (Number.isNaN(d.getTime())) return String(value);
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
-    month: "short",
+    month: "2-digit",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",

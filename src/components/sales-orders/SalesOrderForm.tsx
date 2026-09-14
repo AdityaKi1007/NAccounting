@@ -354,7 +354,13 @@ export default function SalesOrderForm({
           </button>
         </div>
         <div className="overflow-x-auto rounded-md border border-gray-200">
-          <table className="w-full text-left text-sm">
+          {/* table-fixed, not the browser default table-layout:auto — see the identical fix/
+              comment in DocumentForm.tsx's line items table: plain `w-full` with auto layout
+              lets the browser shrink every column (Qty/Rate/Discount/Amount included) to fit
+              the wrapper's width instead of letting the overflow-x-auto wrapper scroll
+              horizontally on a narrow viewport. table-fixed makes each column's width come
+              only from its own <th>'s `w-*` class, independent of the others. */}
+          <table className="w-full table-fixed text-left text-sm">
             <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
               <tr>
                 <th className="w-64 px-3 py-2">Item Details</th>

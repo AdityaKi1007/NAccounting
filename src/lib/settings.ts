@@ -37,7 +37,8 @@ export interface SettingsItem {
     | "general-info"
     | "audit-logs"
     | "api-usage"
-    | "revenue-recognition";
+    | "revenue-recognition"
+    | "access-matrix";
 }
 
 export interface SettingsGroup {
@@ -71,6 +72,12 @@ export const settingsGroups: SettingsGroup[] = [
     items: [
       { slug: "users", label: "Users", description: "Everyone with access to this organization.", view: "users-list" },
       { slug: "user-preferences", label: "User Preferences", description: "Personal display and notification preferences." },
+      // Re-adds custom roles (retired 2026-09-13, schema never dropped) plus a new 10-level
+      // Access Matrix (No Access, Read/Write/Full x Own/Team/All) replacing the old 3-state
+      // View/Write grid — see claude/known-issues-local-env-addendum-access-matrix-2026-09-14.md.
+      // Owner/Admin/Super Admin only, enforced both by hiding this page's content (page.tsx)
+      // and server-side (adminOnly on the "roles" entity, plus the permissions PUT route).
+      { slug: "access-matrix", label: "Access Matrix", description: "Define custom roles and what each can read, write or delete, object by object.", view: "access-matrix" },
     ],
   },
   {

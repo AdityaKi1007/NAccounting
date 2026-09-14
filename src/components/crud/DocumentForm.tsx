@@ -344,11 +344,26 @@ export default function DocumentForm({
           </button>
         </div>
         <div className="overflow-x-auto rounded-md border border-gray-200">
-          <table className="w-full text-left text-sm">
+          {/* table-fixed (not the browser default table-layout:auto), plus w-full: with auto
+              layout, a plain `w-full` table caps the table at exactly the wrapper's width, so
+              the browser is free to shrink every column — including Qty/Rate/Item — down to
+              near-nothing once enough columns are present not to fit (this is exactly what
+              happened once the 3 Revenue Recognition columns below were added for invoices: the
+              wide native date-input columns "won" the auto-layout's content-based redistribution
+              at Qty/Rate/Item's expense). table-fixed makes column widths come ONLY from each
+              <th>'s own `w-*` class (CSS 2.1 §17.5.2), completely independent of what other
+              columns' content wants — combined with `w-full`, the table then renders at
+              max(container width, sum of column widths) instead of being squeezed to fit, so a
+              narrow viewport correctly triggers the overflow-x-auto wrapper's horizontal
+              scrollbar rather than crushing every input. Description gets a real `w-*` width
+              (not `min-w`, which table-fixed's column-sizing algorithm doesn't read) for the
+              same reason — it had no width class at all before, so it was the first column to
+              collapse. */}
+          <table className="w-full table-fixed text-left text-sm">
             <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
               <tr>
                 <th className="w-56 px-3 py-2">Item</th>
-                <th className="px-3 py-2">Description</th>
+                <th className="w-64 px-3 py-2">Description</th>
                 <th className="w-24 px-3 py-2">Qty</th>
                 <th className="w-28 px-3 py-2">Rate</th>
                 {cfg.hasRevenueRecognition && (

@@ -32,13 +32,23 @@ export async function POST(req: NextRequest) {
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const role = ROLES.includes(body.role) ? body.role : "staff";
-  // Custom roles (role_permissions) have been retired from the invite flow — this app now
-  // only offers the standard owner/admin/staff roles, so every new membership is always
-  // unrestricted (role_id null), regardless of anything a caller submits.
-  const roleId: string | null = null;
+  const requestedRoleId = typeof body.roleId === "string" && body.roleId ? body.roleId : null;
 
   if (!email) {
     return NextResponse.json({ error: "Email is required." }, { status: 400 });
+  }
+
+  // Custom roles (role_permissions), reintroduced 2026-09-14 for the Access Matrix feature —
+  // an optional roleId can be attached at invite time, same as the original 2026-09-12
+  // version, but only once confirmed to actually belong to this org.
+  let roleId: string | null = null;
+  if (requestedRoleId) {
+    const role_ = await queryOne(`SELECT id FROM roles WHERE id = $1 AND organization_id = $2`, [
+      requestedRoleId,
+      ctx.orgId,
+    ]);
+    if (!role_) return NextResponse.json({ error: "That role doesn't belong to this organization." }, { status: 400 });
+    roleId = requestedRoleId;
   }
 
   // Enforce the Super Admin's per-organization user cap (organizations.max_users, null =

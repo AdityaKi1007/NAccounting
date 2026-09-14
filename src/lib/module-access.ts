@@ -2,8 +2,9 @@ import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 import { query, queryOne } from "@/lib/db";
 import { GATEABLE_MODULES, MODULE_KEYS } from "@/lib/modules";
+import { capabilitiesOf } from "@/lib/access-levels";
 
-export type ModuleAction = "view" | "write";
+export type ModuleAction = "view" | "write" | "delete";
 
 export interface ModuleAccessCtx {
   orgId: string;
@@ -33,6 +34,13 @@ interface AccessResult {
  *     custom role to a staff member does the permission matrix start applying to them — and
  *     for that role, a module with no explicit role_permissions row is denied by default
  *     (an admin must opt a custom role INTO a module, not opt it out).
+ *
+ * Updated 2026-09-14 (Access Matrix): role_permissions now stores a 10-level `access_level`
+ * (No Access / Read/Write/Full x Own/Team/All) instead of two plain view/write flags, and a
+ * third `"delete"` action was added alongside view/write. capabilitiesOf() (src/lib/
+ * access-levels.ts) is what maps a level down to the view/write/delete booleans actually
+ * checked here — see that file's scope note on why Own/Team/All don't yet behave differently
+ * from each other (no creator/owner tracking or team hierarchy exists in this app yet).
  */
 async function evaluateModuleAccess(
   ctx: ModuleAccessCtx,
@@ -55,12 +63,13 @@ async function evaluateModuleAccess(
   if (ctx.role === "owner" || ctx.role === "admin") return { allowed: true };
   if (!ctx.roleId) return { allowed: true };
 
-  const perm = await queryOne<{ can_view: boolean; can_write: boolean }>(
-    `SELECT can_view, can_write FROM role_permissions WHERE role_id = $1 AND module_key = $2`,
+  const perm = await queryOne<{ access_level: string }>(
+    `SELECT access_level FROM role_permissions WHERE role_id = $1 AND module_key = $2`,
     [ctx.roleId, moduleKey]
   );
   if (!perm) return { allowed: false, reason: "role_restricted" };
-  const ok = action === "write" ? perm.can_write : perm.can_view;
+  const caps = capabilitiesOf(perm.access_level);
+  const ok = action === "delete" ? caps.delete : action === "write" ? caps.write : caps.view;
   return ok ? { allowed: true } : { allowed: false, reason: "role_restricted" };
 }
 
@@ -83,11 +92,11 @@ export async function getVisibleModuleKeys(ctx: ModuleAccessCtx): Promise<Set<st
     return new Set(allKeys.filter((k) => !disabled.has(k)));
   }
 
-  const perms = await query<{ module_key: string; can_view: boolean }>(
-    `SELECT module_key, can_view FROM role_permissions WHERE role_id = $1`,
+  const perms = await query<{ module_key: string; access_level: string }>(
+    `SELECT module_key, access_level FROM role_permissions WHERE role_id = $1`,
     [ctx.roleId]
   );
-  const viewable = new Set(perms.filter((p) => p.can_view).map((p) => p.module_key));
+  const viewable = new Set(perms.filter((p) => capabilitiesOf(p.access_level).view).map((p) => p.module_key));
   return new Set(allKeys.filter((k) => !disabled.has(k) && viewable.has(k)));
 }
 

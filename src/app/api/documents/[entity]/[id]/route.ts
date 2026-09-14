@@ -48,7 +48,7 @@ export async function DELETE(
   if (!ctx) return unauthorized();
   const cfg = documentConfigs[params.entity];
   if (!cfg) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const accessError = await moduleAccessErrorResponse(ctx, params.entity, "write");
+  const accessError = await moduleAccessErrorResponse(ctx, params.entity, "delete");
   if (accessError) return accessError;
 
   // documents-api.ts has no shared deleteDocument() to hook (this DELETE has always lived

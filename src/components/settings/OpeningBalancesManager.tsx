@@ -56,7 +56,10 @@ function formatDisplayDate(v: string | Date | null) {
   const iso = toDateInput(v);
   if (!iso) return "Not set";
   const d = new Date(`${iso}T00:00:00Z`);
-  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(d);
+  // DD/MM/YYYY everywhere, by request — same Intl options as the shared formatDate() in
+  // src/lib/format.ts (this function is a local duplicate, not a call to that helper, purely
+  // because it needs the toDateInput()-normalized value above rather than a raw unknown).
+  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
 }
 
 /** Plain numeric formatting for the Debit/Credit table columns — no currency symbol, matching

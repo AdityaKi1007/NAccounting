@@ -213,6 +213,7 @@ export const FIELD_CATALOG: Catalog = {
       { name: "reason", label: "Reason", sample: "Damaged goods" },
       { name: "taxPercent", label: "Tax %", sample: 0 },
       { name: "legal_entity_id", label: "Legal Entity", sample: null },
+      { name: "crm_cn_no", label: "CRM CN No", sample: "CRM-CN-6203" },
     ],
   },
 };

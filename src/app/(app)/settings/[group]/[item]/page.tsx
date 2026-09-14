@@ -23,6 +23,7 @@ import GeneralSettingsInfo from "@/components/settings/GeneralSettingsInfo";
 import AuditLogViewer from "@/components/settings/AuditLogViewer";
 import ApiUsageDetails from "@/components/settings/ApiUsageDetails";
 import RevenueRecognitionSettings from "@/components/settings/RevenueRecognitionSettings";
+import AccessMatrixManager from "@/components/settings/AccessMatrixManager";
 import { getOrCreateNumberSeries, NUMBER_SERIES_MODULES } from "@/lib/number-series";
 import { accountCategory } from "@/lib/accounts";
 import { getOrgLogoDataUri } from "@/lib/s3";
@@ -134,6 +135,21 @@ export default async function SettingsItemPage({
   // the API route (/api/settings/audit-logs) enforces the same check independently, this is
   // just what keeps the page itself from showing the log viewer to anyone else.
   const canViewAuditLogs = ctx.role === "owner" || ctx.role === "admin";
+
+  // Access Matrix (custom roles + the 10-level read/write/delete grid): Owner/Admin/Super
+  // Admin only, per the request this feature was built from ("accessed by Admin or Super
+  // Admin"). API-side, this is independently enforced by the "roles" entity's adminOnly flag
+  // and the /api/settings/roles/[id]/permissions PUT route — this is just what keeps the page
+  // itself from showing the roles table / matrix to an ordinary staff member.
+  const canManageAccessMatrix = ctx.role === "owner" || ctx.role === "admin" || ctx.isSuperAdmin;
+
+  const accessMatrixRoles =
+    item.view === "access-matrix" && canManageAccessMatrix
+      ? ((await query(
+          `SELECT id, name FROM roles WHERE organization_id = $1 ORDER BY name ASC`,
+          [ctx.orgId]
+        )) as { id: string; name: string }[])
+      : null;
 
   const auditLogUsers =
     item.view === "audit-logs" && canViewAuditLogs
@@ -263,13 +279,18 @@ export default async function SettingsItemPage({
           <UsersList
             users={
               (await query(
-                `SELECT m.id AS membership_id, m.role, m.created_at AS joined_at, u.id AS user_id, u.name, u.email
+                `SELECT m.id AS membership_id, m.role, m.role_id, m.created_at AS joined_at, u.id AS user_id, u.name, u.email
                  FROM memberships m
                  JOIN users u ON u.id = m.user_id
                  WHERE m.organization_id = $1
                  ORDER BY m.created_at ASC`,
                 [ctx.orgId]
               )) as never[]
+            }
+            roles={
+              (await query(`SELECT id, name FROM roles WHERE organization_id = $1 ORDER BY name ASC`, [
+                ctx.orgId,
+              ])) as { id: string; name: string }[]
             }
             canManage={ctx.role === "owner" || ctx.role === "admin"}
           />
@@ -589,6 +610,29 @@ export default async function SettingsItemPage({
         )}
 
         {item.view === "revenue-recognition" && <RevenueRecognitionSettings orgId={ctx.orgId} />}
+
+        {item.view === "access-matrix" &&
+          (canManageAccessMatrix ? (
+            <div className="space-y-6">
+              <div>
+                <h2 className="mb-2 text-sm font-semibold text-ink-800">Roles</h2>
+                <SettingsEntityList entityKey="roles" orgId={ctx.orgId} />
+              </div>
+              <div>
+                <h2 className="mb-2 text-sm font-semibold text-ink-800">Access Matrix</h2>
+                <AccessMatrixManager roles={accessMatrixRoles ?? []} />
+              </div>
+            </div>
+          ) : (
+            <div className="card flex flex-col items-center justify-center gap-3 py-24 text-center">
+              <ShieldAlert size={40} className="text-gray-300" />
+              <h2 className="text-base font-semibold text-ink-800">Owner and Admin Only</h2>
+              <p className="max-w-sm text-sm text-gray-500">
+                The Access Matrix is visible only to your organization&apos;s Owner and Admin. Ask one of
+                them if you need a role&apos;s access changed.
+              </p>
+            </div>
+          ))}
 
         {!item.view && (
           <div className="card flex flex-col items-center justify-center gap-3 py-24 text-center">
