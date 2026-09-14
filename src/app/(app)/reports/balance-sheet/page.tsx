@@ -6,6 +6,7 @@ import { query } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { defaultAsOfDate } from "@/lib/report-dates";
 import { processDueJournalReversals } from "@/lib/journal-reversals";
+import { processDueRevenueRecognition } from "@/lib/auto-journal";
 import ReportAsOfBar from "@/components/reports/ReportAsOfBar";
 
 interface AccountLine {
@@ -84,6 +85,7 @@ export default async function BalanceSheetPage({ searchParams }: { searchParams:
   const ctx = await requireActiveContext();
   await requireModuleAccess(ctx, "reports", "view");
   await processDueJournalReversals(ctx.orgId);
+  await processDueRevenueRecognition(ctx.orgId);
   const asOf = searchParams.asOf || defaultAsOfDate();
 
   const [assets, liabilities, equity, income, expenses] = await Promise.all([

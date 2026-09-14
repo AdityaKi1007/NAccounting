@@ -22,6 +22,7 @@ import S3StorageSettingsForm from "@/components/settings/S3StorageSettingsForm";
 import GeneralSettingsInfo from "@/components/settings/GeneralSettingsInfo";
 import AuditLogViewer from "@/components/settings/AuditLogViewer";
 import ApiUsageDetails from "@/components/settings/ApiUsageDetails";
+import RevenueRecognitionSettings from "@/components/settings/RevenueRecognitionSettings";
 import { getOrCreateNumberSeries, NUMBER_SERIES_MODULES } from "@/lib/number-series";
 import { accountCategory } from "@/lib/accounts";
 import { getOrgLogoDataUri } from "@/lib/s3";
@@ -586,6 +587,8 @@ export default async function SettingsItemPage({
             apiKeys={apiUsageData.apiKeys}
           />
         )}
+
+        {item.view === "revenue-recognition" && <RevenueRecognitionSettings orgId={ctx.orgId} />}
 
         {!item.view && (
           <div className="card flex flex-col items-center justify-center gap-3 py-24 text-center">

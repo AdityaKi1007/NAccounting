@@ -44,6 +44,13 @@ export interface DocumentConfig {
    * Orders, but only Purchase Orders opted in here (Sales Orders has its own dedicated form,
    * SalesOrderForm.tsx, which renders it directly instead). */
   allowAttachments?: boolean;
+  /** itemsTable has revenue_recognition_rule_id/service_start_date/service_end_date columns
+   * (migrations/1782000000000_revenue_recognition.js) — a line can be tagged with a Revenue
+   * Recognition Rule (src/lib/entities.ts's "revenue-recognition-rules") and a service period
+   * to defer its income over instead of recognizing it all on the document date. Invoices-only
+   * for this pass (deferred income is a sales concept — bills/purchase-orders record expense,
+   * not income, so there's no matching "deferred expense" feature here yet). */
+  hasRevenueRecognition?: boolean;
 }
 
 export const documentConfigs: Record<string, DocumentConfig> = {
@@ -98,6 +105,7 @@ export const documentConfigs: Record<string, DocumentConfig> = {
       unit_id: "inventory",
       legal_entity_id: "legal-entities",
     },
+    hasRevenueRecognition: true,
   },
   bills: {
     key: "bills",
@@ -176,4 +184,10 @@ export interface DocumentLineInput {
   description?: string;
   quantity: number;
   rate: number;
+  // Revenue Recognition (hasRevenueRecognition-gated, invoices only — see that flag's own
+  // comment above). All optional/nullable: a line with no rule tagged behaves exactly as
+  // before this feature existed.
+  revenue_recognition_rule_id?: string | null;
+  service_start_date?: string | null;
+  service_end_date?: string | null;
 }

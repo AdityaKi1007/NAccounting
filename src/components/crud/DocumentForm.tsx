@@ -21,6 +21,12 @@ interface LineRow {
   description: string;
   quantity: number;
   rate: number;
+  // Revenue Recognition (cfg.hasRevenueRecognition-gated, invoices only) — which rule (if any)
+  // this line defers under, and the service period that rule's proration spans. Empty string
+  // means untagged, same convention as item_id/project_id/unit_id above.
+  revenueRecognitionRuleId: string;
+  serviceStartDate: string;
+  serviceEndDate: string;
 }
 
 interface NumberSeries {
@@ -38,12 +44,23 @@ interface Props {
    * "invoices"); empty arrays for every other document type sharing this form. */
   projectOptions?: SelectOption[];
   unitOptions?: SelectOption[];
+  /** Revenue Recognition Rules — only rendered/used for Invoices (cfg.hasRevenueRecognition),
+   * same gating as projectOptions/unitOptions above. */
+  ruleOptions?: SelectOption[];
   itemOptions: ItemOption[];
   statusOptions: SelectOption[];
   currency: string;
   initial?: {
     header: Record<string, unknown>;
-    lines: { item_id?: string | null; description?: string | null; quantity: number; rate: number }[];
+    lines: {
+      item_id?: string | null;
+      description?: string | null;
+      quantity: number;
+      rate: number;
+      revenue_recognition_rule_id?: string | null;
+      service_start_date?: string | Date | null;
+      service_end_date?: string | Date | null;
+    }[];
     taxPercent: number;
   } | null;
   recordId?: string;
@@ -76,7 +93,16 @@ function toDateInputValue(value: unknown): string {
 let seq = 0;
 function newRow(): LineRow {
   seq += 1;
-  return { key: `row-${seq}`, item_id: "", description: "", quantity: 1, rate: 0 };
+  return {
+    key: `row-${seq}`,
+    item_id: "",
+    description: "",
+    quantity: 1,
+    rate: 0,
+    revenueRecognitionRuleId: "",
+    serviceStartDate: "",
+    serviceEndDate: "",
+  };
 }
 
 export default function DocumentForm({
@@ -84,6 +110,7 @@ export default function DocumentForm({
   partyOptions,
   projectOptions = [],
   unitOptions = [],
+  ruleOptions = [],
   itemOptions,
   statusOptions,
   currency,
@@ -125,6 +152,9 @@ export default function DocumentForm({
           description: l.description ?? "",
           quantity: Number(l.quantity),
           rate: Number(l.rate),
+          revenueRecognitionRuleId: l.revenue_recognition_rule_id ?? "",
+          serviceStartDate: toDateInputValue(l.service_start_date),
+          serviceEndDate: toDateInputValue(l.service_end_date),
         };
       });
     }
@@ -201,6 +231,13 @@ export default function DocumentForm({
           description: r.description,
           quantity: Number(r.quantity),
           rate: Number(r.rate),
+          ...(cfg.hasRevenueRecognition
+            ? {
+                revenue_recognition_rule_id: r.revenueRecognitionRuleId || null,
+                service_start_date: r.serviceStartDate || null,
+                service_end_date: r.serviceEndDate || null,
+              }
+            : {}),
         })),
         taxPercent,
       }),
@@ -314,6 +351,13 @@ export default function DocumentForm({
                 <th className="px-3 py-2">Description</th>
                 <th className="w-24 px-3 py-2">Qty</th>
                 <th className="w-28 px-3 py-2">Rate</th>
+                {cfg.hasRevenueRecognition && (
+                  <>
+                    <th className="w-44 px-3 py-2">Recognition Rule</th>
+                    <th className="w-32 px-3 py-2">Service Start</th>
+                    <th className="w-32 px-3 py-2">Service End</th>
+                  </>
+                )}
                 <th className="w-28 px-3 py-2">Amount</th>
                 <th className="w-10 px-3 py-2" />
               </tr>
@@ -363,6 +407,42 @@ export default function DocumentForm({
                       onChange={(e) => updateRow(row.key, { rate: parseFloat(e.target.value) || 0 })}
                     />
                   </td>
+                  {cfg.hasRevenueRecognition && (
+                    <>
+                      <td className="px-3 py-1.5">
+                        <select
+                          className="input"
+                          value={row.revenueRecognitionRuleId}
+                          onChange={(e) => updateRow(row.key, { revenueRecognitionRuleId: e.target.value })}
+                        >
+                          <option value="">Immediate (no deferral)</option>
+                          {ruleOptions.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <input
+                          className="input"
+                          type="date"
+                          value={row.serviceStartDate}
+                          disabled={!row.revenueRecognitionRuleId}
+                          onChange={(e) => updateRow(row.key, { serviceStartDate: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <input
+                          className="input"
+                          type="date"
+                          value={row.serviceEndDate}
+                          disabled={!row.revenueRecognitionRuleId}
+                          onChange={(e) => updateRow(row.key, { serviceEndDate: e.target.value })}
+                        />
+                      </td>
+                    </>
+                  )}
                   <td className="px-3 py-1.5 text-sm text-ink-800">
                     {formatCurrency(row.quantity * row.rate, currency)}
                   </td>

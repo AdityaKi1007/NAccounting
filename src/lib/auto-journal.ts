@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { pool } from "@/lib/db";
 import { claimNextNumber } from "@/lib/number-series";
 
 // Keeps the double-entry journal for an invoice or a payment in sync with that document,
@@ -190,6 +191,231 @@ async function replaceJournal(
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+// ---------------------------------------------------------------------------------------
+// Revenue Recognition (Settings -> General -> Revenue Recognition — see
+// migrations/1782000000000_revenue_recognition.js for the full design writeup). Lets an
+// invoice line tagged with a "Straight-Line" rule and a service period defer its income:
+// instead of the whole line amount posting to Income on the invoice date, it's spread evenly
+// (by day count) across the service period and recognized a period at a time as each period's
+// end date arrives, via processDueRevenueRecognition below — this app's usual "process due X
+// on page load" convention (see processDueJournalReversals in journal-reversals.ts), since
+// there's no cron here. A line with no rule, or one tagged "Immediate", behaves exactly as
+// every invoice line did before this feature existed.
+// ---------------------------------------------------------------------------------------
+
+/** Splits `totalAmount` across calendar-month buckets spanning [startDate, endDate]
+ * (inclusive, 'YYYY-MM-DD' strings), each bucket's share proportional to its own day count
+ * relative to the whole period's day count. The LAST bucket absorbs whatever rounding
+ * remainder is left over (totalAmount minus the sum of every earlier bucket's rounded share)
+ * rather than being independently rounded, so the returned periods always sum to exactly
+ * totalAmount — never a cent more or less, which matters because syncInvoiceJournal trusts
+ * SUM(revenue_recognition_schedules.amount) to equal the tagged line's own amount exactly (see
+ * that function's own comment on why the main journal's Deferred Revenue split is always
+ * computed from the schedule, never independently from line data). */
+function prorateStraightLineMonthly(
+  startDate: string,
+  endDate: string,
+  totalAmount: number
+): { start: string; end: string; amount: number }[] {
+  const msPerDay = 86400000;
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  const totalDays = Math.round((end.getTime() - start.getTime()) / msPerDay) + 1;
+  if (totalDays <= 0) return [];
+
+  const periods: { start: string; end: string; amount: number }[] = [];
+  let cursor = start;
+  while (cursor.getTime() <= end.getTime()) {
+    // Last calendar day of cursor's month, in UTC — day 0 of the following month.
+    const monthEnd = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 0));
+    const bucketEnd = monthEnd.getTime() < end.getTime() ? monthEnd : end;
+    const bucketDays = Math.round((bucketEnd.getTime() - cursor.getTime()) / msPerDay) + 1;
+    periods.push({
+      start: cursor.toISOString().slice(0, 10),
+      end: bucketEnd.toISOString().slice(0, 10),
+      amount: round2(totalAmount * (bucketDays / totalDays)),
+    });
+    cursor = new Date(bucketEnd.getTime() + msPerDay);
+  }
+  if (periods.length > 0) {
+    const sumExceptLast = round2(periods.slice(0, -1).reduce((s, p) => s + p.amount, 0));
+    periods[periods.length - 1].amount = round2(totalAmount - sumExceptLast);
+  }
+  return periods;
+}
+
+/** Rebuilds one invoice's revenue-recognition schedule (one row per tagged line per proration
+ * period) from its CURRENT invoice_items — call after every invoice create/update, inside the
+ * same transaction, before syncInvoiceJournal builds the main journal (it needs
+ * SUM(schedule.amount) to know how much of the invoice to post as Deferred Revenue vs. Income).
+ *
+ * "Frozen" once any period has actually recognized (recognized_at IS NOT NULL): this function
+ * then does nothing at all, leaving every row — recognized or not — exactly as it is, no
+ * matter how the invoice is edited afterward. This is the guarantee that makes it safe to call
+ * unconditionally on every save: without it, updateDocument's normal "delete every line, then
+ * reinsert" edit flow (see documents-api.ts) would cascade-delete this invoice's schedule rows
+ * the moment ANY line changed, silently losing the link to periods that already posted a real,
+ * historical journal entry. Before that first recognition, though, every row is still
+ * provisional — nothing has been posted for it yet — so a full delete-then-regenerate from
+ * scratch (mirroring replaceJournal's own contract elsewhere in this file) is always safe.
+ *
+ * `active` is false for a Draft/Void invoice (or a zero-total one) — status.ts's caller
+ * decides this, not this function, since it already has the invoice row loaded. An inactive
+ * invoice has no real, posted revenue yet, so (while not frozen) its schedule is cleared
+ * rather than regenerated — nothing should be "due" for recognition off a Draft invoice. */
+export async function syncRevenueRecognitionSchedule(client: PoolClient, orgId: string, invoiceId: string, active: boolean) {
+  const frozen = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS(
+       SELECT 1 FROM revenue_recognition_schedules
+       WHERE organization_id = $1 AND invoice_id = $2 AND recognized_at IS NOT NULL
+     ) AS exists`,
+    [orgId, invoiceId]
+  );
+  if (frozen.rows[0]?.exists) return;
+
+  await client.query(`DELETE FROM revenue_recognition_schedules WHERE organization_id = $1 AND invoice_id = $2`, [orgId, invoiceId]);
+  if (!active) return;
+
+  const items = await client.query<{
+    id: string;
+    amount: string;
+    revenue_recognition_rule_id: string | null;
+    service_start_date: string | null;
+    service_end_date: string | null;
+  }>(
+    `SELECT id, amount, revenue_recognition_rule_id,
+            to_char(service_start_date, 'YYYY-MM-DD') AS service_start_date,
+            to_char(service_end_date, 'YYYY-MM-DD') AS service_end_date
+     FROM invoice_items
+     WHERE invoice_id = $1
+       AND revenue_recognition_rule_id IS NOT NULL
+       AND service_start_date IS NOT NULL
+       AND service_end_date IS NOT NULL`,
+    [invoiceId]
+  );
+  if (items.rowCount === 0) return;
+
+  const ruleIds = [...new Set(items.rows.map((r) => r.revenue_recognition_rule_id!))];
+  const rules = await client.query<{ id: string; method: string }>(
+    `SELECT id, method FROM revenue_recognition_rules WHERE organization_id = $1 AND id = ANY($2::uuid[])`,
+    [orgId, ruleIds]
+  );
+  const methodByRule = new Map(rules.rows.map((r) => [r.id, r.method]));
+
+  for (const item of items.rows) {
+    // Anything other than "straight_line" — "immediate", or a rule that's since been deleted/
+    // renamed away (methodByRule.get returns undefined) — gets no schedule at all, same as an
+    // untagged line: its full amount stays in syncInvoiceJournal's normal immediate Income line.
+    if (methodByRule.get(item.revenue_recognition_rule_id!) !== "straight_line") continue;
+    if (item.service_end_date! < item.service_start_date!) continue; // nonsensical period — treat as untagged rather than guess
+
+    const periods = prorateStraightLineMonthly(item.service_start_date!, item.service_end_date!, round2(Number(item.amount)));
+    for (const period of periods) {
+      await client.query(
+        `INSERT INTO revenue_recognition_schedules
+           (organization_id, invoice_id, invoice_item_id, period_start, period_end, amount)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [orgId, invoiceId, item.id, period.start, period.end, period.amount]
+      );
+    }
+  }
+}
+
+/** Auto-posts the recognition journal (Dr Deferred Revenue / Cr Income) for every schedule row
+ * across the whole org whose period has come due (period_end <= today) and hasn't recognized
+ * yet — this app's usual "process due X on page load" convention (see
+ * processDueJournalReversals), called from the Dashboard alongside that function. Deliberately
+ * does NOT set invoice_id on the journal it posts: manual_journals.invoice_id is the link
+ * column syncInvoiceJournal's replaceJournal uses to find and delete-then-recreate "the"
+ * invoice's own journal on every save — a recognition journal sharing that column would get
+ * silently deleted the next time the invoice is merely re-saved. It's still fully traceable
+ * back to its invoice via revenue_recognition_schedules.journal_id and its own reference
+ * number (the invoice number) and notes.
+ *
+ * One transaction for the whole batch: if anything fails partway through, nothing is marked
+ * recognized and nothing posted, so the next call (the next page load) safely retries
+ * everything from scratch — same idempotent, safe-to-call-repeatedly contract as every other
+ * sync in this file. */
+export async function processDueRevenueRecognition(orgId: string) {
+  const due = await pool.query<{
+    id: string;
+    invoice_id: string;
+    invoice_number: string;
+    period_start: string;
+    period_end: string;
+    amount: string;
+  }>(
+    `SELECT s.id, s.invoice_id, i.invoice_number,
+            to_char(s.period_start, 'YYYY-MM-DD') AS period_start,
+            to_char(s.period_end, 'YYYY-MM-DD') AS period_end,
+            s.amount
+     FROM revenue_recognition_schedules s
+     JOIN invoices i ON i.id = s.invoice_id
+     WHERE s.organization_id = $1 AND s.recognized_at IS NULL AND s.period_end <= CURRENT_DATE
+     ORDER BY s.period_end ASC, s.id ASC`,
+    [orgId]
+  );
+  if (due.rowCount === 0) return;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const [deferredAccountId, incomeAccountId] = await Promise.all([
+      findAccountId(client, orgId, { types: ["other_current_liability"], nameLike: "deferred" }),
+      findAccountId(client, orgId, { types: ["income", "other_income"], nameLike: "sales" }),
+    ]);
+    // Same "configuration isn't finished yet, post nothing" policy as every other account
+    // resolution in this file — the due rows stay unrecognized (recognized_at still NULL) and
+    // are simply picked up again next time this runs, once the Chart of Accounts has what it
+    // needs, rather than posting an unbalanced entry or crashing the page that called this.
+    if (!deferredAccountId || !incomeAccountId) {
+      await client.query("ROLLBACK");
+      return;
+    }
+
+    for (const row of due.rows) {
+      const amount = round2(Number(row.amount));
+      if (amount <= 0) {
+        // Nothing to post (a zero-amount period, e.g. from rounding) — mark it recognized with
+        // no journal so it isn't retried forever; journal_id simply stays null, which is fine,
+        // that column exists precisely to be optional (see the migration's own comment).
+        await client.query(`UPDATE revenue_recognition_schedules SET recognized_at = now() WHERE id = $1`, [row.id]);
+        continue;
+      }
+
+      const journalNumber = await claimNextNumber(client, orgId, "manual-journals");
+      const notes = `Auto-generated Revenue Recognition for Invoice ${row.invoice_number}, period ${row.period_start} to ${row.period_end}`;
+      const header = await client.query<{ id: string }>(
+        `INSERT INTO manual_journals (organization_id, journal_number, journal_date, reference_number, status, notes)
+         VALUES ($1, $2, $3, $4, 'published', $5) RETURNING id`,
+        [orgId, journalNumber, row.period_end, row.invoice_number, notes]
+      );
+      const journalId = header.rows[0].id;
+      const description = `Revenue Recognition — Invoice ${row.invoice_number}`;
+      await client.query(
+        `INSERT INTO journal_lines (journal_id, account_id, description, debit, credit) VALUES ($1, $2, $3, $4, 0)`,
+        [journalId, deferredAccountId, description, amount]
+      );
+      await client.query(
+        `INSERT INTO journal_lines (journal_id, account_id, description, debit, credit) VALUES ($1, $2, $3, 0, $4)`,
+        [journalId, incomeAccountId, description, amount]
+      );
+      await client.query(`UPDATE revenue_recognition_schedules SET recognized_at = now(), journal_id = $1 WHERE id = $2`, [
+        journalId,
+        row.id,
+      ]);
+    }
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error(err);
+  } finally {
+    client.release();
+  }
+}
+
 /** Syncs the auto-journal for one invoice to its current status/subtotal/tax_total/total.
  * Safe to call after any invoice create/update, and on every call regardless of whether a
  * journal already exists — it always ends up matching the invoice's current state exactly. */
@@ -209,8 +435,16 @@ export async function syncInvoiceJournal(client: PoolClient, orgId: string, invo
   if (!invoice.rowCount) return;
   const inv = invoice.rows[0];
 
+  // Keep the Revenue Recognition schedule current before anything else below reads it — it
+  // needs to reflect this invoice's CURRENT lines (just saved) whether or not the invoice ends
+  // up posting a main journal at all; "active" governs whether a Draft/Void invoice's
+  // not-yet-frozen schedule is cleared instead of regenerated (see that function's own
+  // comment) — it does not skip the call, since a frozen schedule must survive either way.
+  const isActiveRevenue = inv.status !== "draft" && inv.status !== "void";
+  await syncRevenueRecognitionSchedule(client, orgId, invoiceId, isActiveRevenue);
+
   // Void and Draft invoices aren't real, posted revenue yet — no journal for either.
-  if (inv.status === "draft" || inv.status === "void") {
+  if (!isActiveRevenue) {
     await replaceJournal(client, {
       orgId,
       invoiceId,
@@ -239,15 +473,40 @@ export async function syncInvoiceJournal(client: PoolClient, orgId: string, invo
     return;
   }
 
-  const [arAccountId, incomeAccountId, taxAccountId] = await Promise.all([
+  // The portion of this invoice's subtotal that's deferred (tagged Straight-Line with a
+  // service period) rather than recognized immediately — always read from the schedule this
+  // function just synced above, never recomputed independently from line data, which is what
+  // guarantees the main journal below and the schedule are always mutually consistent and
+  // balanced (see syncRevenueRecognitionSchedule's own comment). Capped at subtotal as a
+  // defensive floor only — a tagged line's own schedule rows always sum to exactly that line's
+  // amount (see prorateStraightLineMonthly), so deferredTotal should never actually exceed the
+  // sum of all lines.
+  const deferredResult = await client.query<{ total: string | null }>(
+    `SELECT SUM(amount) AS total FROM revenue_recognition_schedules WHERE organization_id = $1 AND invoice_id = $2`,
+    [orgId, invoiceId]
+  );
+  const deferredTotal = Math.min(subtotal, round2(Number(deferredResult.rows[0]?.total ?? 0)));
+  const immediateIncome = Math.max(0, round2(subtotal - deferredTotal));
+
+  const [arAccountId, incomeAccountId, taxAccountId, deferredAccountId] = await Promise.all([
     findAccountId(client, orgId, { types: ["accounts_receivable"] }),
-    findAccountId(client, orgId, { types: ["income", "other_income"], nameLike: "sales" }),
+    // Only actually needed when some part of this invoice recognizes immediately — a fully-
+    // deferred invoice (every line tagged Straight-Line) has nothing to post to Income yet.
+    immediateIncome > 0 ? findAccountId(client, orgId, { types: ["income", "other_income"], nameLike: "sales" }) : Promise.resolve(null),
     taxTotal > 0 ? findAccountId(client, orgId, { types: ["other_current_liability"], nameLike: "vat" }) : Promise.resolve(null),
+    deferredTotal > 0 ? findAccountId(client, orgId, { types: ["other_current_liability"], nameLike: "deferred" }) : Promise.resolve(null),
   ]);
 
   // Can't post a journal that won't balance — if the org's Chart of Accounts is missing
-  // Accounts Receivable or an Income account entirely, skip posting rather than guess.
-  if (!arAccountId || !incomeAccountId || (taxTotal > 0 && !taxAccountId)) {
+  // Accounts Receivable, an Income account this invoice actually needs, a VAT account this
+  // invoice actually needs, or (for a partly/fully deferred invoice) a Deferred Revenue
+  // account, skip posting rather than guess.
+  if (
+    !arAccountId ||
+    (immediateIncome > 0 && !incomeAccountId) ||
+    (taxTotal > 0 && !taxAccountId) ||
+    (deferredTotal > 0 && !deferredAccountId)
+  ) {
     await replaceJournal(client, {
       orgId,
       invoiceId,
@@ -260,10 +519,18 @@ export async function syncInvoiceJournal(client: PoolClient, orgId: string, invo
     return;
   }
 
-  const lines: JournalLineInput[] = [
-    { accountId: arAccountId, description: `Invoice ${inv.invoice_number}`, debit: total, credit: 0 },
-    { accountId: incomeAccountId, description: `Invoice ${inv.invoice_number}`, debit: 0, credit: subtotal },
-  ];
+  const lines: JournalLineInput[] = [{ accountId: arAccountId, description: `Invoice ${inv.invoice_number}`, debit: total, credit: 0 }];
+  if (immediateIncome > 0 && incomeAccountId) {
+    lines.push({ accountId: incomeAccountId, description: `Invoice ${inv.invoice_number}`, debit: 0, credit: immediateIncome });
+  }
+  if (deferredTotal > 0 && deferredAccountId) {
+    lines.push({
+      accountId: deferredAccountId,
+      description: `Invoice ${inv.invoice_number} — deferred revenue`,
+      debit: 0,
+      credit: deferredTotal,
+    });
+  }
   if (taxTotal > 0 && taxAccountId) {
     lines.push({ accountId: taxAccountId, description: `Invoice ${inv.invoice_number}`, debit: 0, credit: taxTotal });
   }

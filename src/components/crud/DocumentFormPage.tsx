@@ -21,7 +21,7 @@ export default async function DocumentFormPage({ entityKey, id }: { entityKey: s
   // every other document type that shares this same page.
   const isInvoices = cfg.key === "invoices";
 
-  const [partyRows, itemRows, projectRows, unitRows] = await Promise.all([
+  const [partyRows, itemRows, projectRows, unitRows, ruleRows] = await Promise.all([
     query<{ id: string; label: string }>(
       `SELECT id, ${cfg.partyRefEntity === "customers" ? "display_name" : "display_name"} AS label
        FROM ${cfg.partyRefEntity} WHERE organization_id = $1 ORDER BY display_name ASC`,
@@ -37,6 +37,16 @@ export default async function DocumentFormPage({ entityKey, id }: { entityKey: s
     isInvoices
       ? query<{ id: string; name: string }>(`SELECT id, name FROM inventory WHERE organization_id = $1 ORDER BY name ASC`, [ctx.orgId])
       : Promise.resolve([]),
+    // Revenue Recognition Rules — same isInvoices gating as project/unit above (see
+    // cfg.hasRevenueRecognition in DocumentForm.tsx). Only active rules are offered when
+    // tagging a new/edited line; an inactive one already tagged on an existing line still
+    // resolves fine via its id even though it won't appear in this dropdown.
+    isInvoices && cfg.hasRevenueRecognition
+      ? query<{ id: string; name: string }>(
+          `SELECT id, name FROM revenue_recognition_rules WHERE organization_id = $1 AND is_active = true ORDER BY name ASC`,
+          [ctx.orgId]
+        )
+      : Promise.resolve([]),
   ]);
 
   let initial = null;
@@ -46,8 +56,19 @@ export default async function DocumentFormPage({ entityKey, id }: { entityKey: s
       id,
     ]);
     if (!header) notFound();
-    const lines = await query<{ item_id: string | null; description: string | null; quantity: number; rate: number }>(
-      `SELECT item_id, description, quantity, rate FROM ${cfg.itemsTable} WHERE ${cfg.parentField} = $1 ORDER BY id`,
+    const lines = await query<{
+      item_id: string | null;
+      description: string | null;
+      quantity: number;
+      rate: number;
+      revenue_recognition_rule_id?: string | null;
+      service_start_date?: Date | string | null;
+      service_end_date?: Date | string | null;
+    }>(
+      `SELECT item_id, description, quantity, rate${
+        cfg.hasRevenueRecognition ? ", revenue_recognition_rule_id, service_start_date, service_end_date" : ""
+      }
+       FROM ${cfg.itemsTable} WHERE ${cfg.parentField} = $1 ORDER BY id`,
       [id]
     );
     const subtotal = Number((header as Record<string, unknown>).subtotal ?? 0);
@@ -74,6 +95,7 @@ export default async function DocumentFormPage({ entityKey, id }: { entityKey: s
           partyOptions={partyRows.map((r) => ({ value: r.id, label: r.label }))}
           projectOptions={projectRows.map((r) => ({ value: r.id, label: r.name }))}
           unitOptions={unitRows.map((r) => ({ value: r.id, label: r.name }))}
+          ruleOptions={ruleRows.map((r) => ({ value: r.id, label: r.name }))}
           itemOptions={itemRows.map((r) => ({
             value: r.id,
             label: r.name,

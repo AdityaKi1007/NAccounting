@@ -29,6 +29,7 @@ const REPORT_ROWS: ReportRow[] = [
 
   { label: "General Ledger", href: "/reports/general-ledger", category: "Accountant" },
   { label: "Trial Balance", href: "/reports/trial-balance", category: "Accountant" },
+  { label: "Deferred Revenue", href: "/reports/deferred-revenue", category: "Accountant" },
 
   { label: "Activity Logs & Audit Trail", href: "/reports/activity-logs", category: "Activity", placeholder: true },
 ];

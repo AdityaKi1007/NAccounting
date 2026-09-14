@@ -6,6 +6,7 @@ import { query, queryOne } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { defaultFiscalYearRange } from "@/lib/report-dates";
 import { processDueJournalReversals } from "@/lib/journal-reversals";
+import { processDueRevenueRecognition } from "@/lib/auto-journal";
 import { loadProjectUnitOptions, normalizeFilterId } from "@/lib/report-filters";
 import ReportDateRangeBar from "@/components/reports/ReportDateRangeBar";
 
@@ -42,6 +43,7 @@ export default async function GeneralLedgerPage({
   const ctx = await requireActiveContext();
   await requireModuleAccess(ctx, "reports", "view");
   await processDueJournalReversals(ctx.orgId);
+  await processDueRevenueRecognition(ctx.orgId);
   const org = await queryOne<{ fiscal_year_start: string | null }>(
     `SELECT fiscal_year_start FROM organizations WHERE id = $1`,
     [ctx.orgId]

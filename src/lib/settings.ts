@@ -36,7 +36,8 @@ export interface SettingsItem {
     | "file-storage"
     | "general-info"
     | "audit-logs"
-    | "api-usage";
+    | "api-usage"
+    | "revenue-recognition";
 }
 
 export interface SettingsGroup {
@@ -163,7 +164,12 @@ export const settingsGroups: SettingsGroup[] = [
     items: [
       { slug: "customers-and-vendors", label: "Customers and Vendors", description: "Default fields and settings for contacts." },
       { slug: "items", label: "Items", description: "Default units, warehouses and item settings." },
-      { slug: "revenue-recognition", label: "Revenue Recognition", description: "Rules for when revenue is recognized." },
+      {
+        slug: "revenue-recognition",
+        label: "Revenue Recognition",
+        description: "Rules for when revenue is recognized.",
+        view: "revenue-recognition",
+      },
       { slug: "accountant", label: "Accountant", description: "Closing dates and accountant-only preferences." },
       { slug: "projects", label: "Projects", description: "Project tracking defaults." },
       { slug: "timesheet", label: "Timesheet", description: "Time entry rules for time tracking." },

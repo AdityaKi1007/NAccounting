@@ -1385,6 +1385,57 @@ export const entities: Record<string, EntityDef> = {
     ],
   },
 
+  // The Rules table under Settings -> General -> Revenue Recognition (see
+  // RevenueRecognitionSettings.tsx, embedded via SettingsEntityList — same "generic flat
+  // entity embedded in a settings sub-page" pattern as currencies/payment-terms above). Plain
+  // flat entity, no line items, no GL postings of its own — the GL work happens in
+  // auto-journal.ts's syncRevenueRecognitionSchedule, keyed off which rule (if any) an
+  // invoice line is tagged with via invoice_items.revenue_recognition_rule_id.
+  "revenue-recognition-rules": {
+    key: "revenue-recognition-rules",
+    table: "revenue_recognition_rules",
+    label: "Revenue Recognition Rule",
+    labelPlural: "Revenue Recognition Rules",
+    module: "Settings",
+    kind: "flat",
+    titleField: "name",
+    orderBy: "created_at asc",
+    listColumns: ["name", "method", "frequency", "is_active"],
+    fields: [
+      { name: "name", label: "Rule Name", type: "text", required: true, placeholder: "e.g. 12-Month Service" },
+      {
+        name: "method",
+        label: "Recognition Method",
+        type: "select",
+        default: "straight_line",
+        required: true,
+        // "Immediate" is the no-op method — a line tagged with it (or left untagged) behaves
+        // exactly as every invoice line did before this feature existed, posting its full
+        // amount to Income on the invoice date. "Straight-Line" is the real deferral method:
+        // the line's amount is spread evenly (by day count) across its service period and
+        // recognized a period at a time as each period's end date arrives — see
+        // syncRevenueRecognitionSchedule / processDueRevenueRecognition in auto-journal.ts.
+        options: [
+          { label: "Immediate", value: "immediate" },
+          { label: "Straight-Line", value: "straight_line" },
+        ],
+      },
+      {
+        name: "frequency",
+        label: "Recognition Frequency",
+        type: "select",
+        default: "monthly",
+        required: true,
+        // Monthly is the only frequency this pass's proration logic implements (see
+        // auto-journal.ts) — stored as its own field rather than hardcoded so Daily/Yearly can
+        // be added later without a schema change; the select only offers what's implemented.
+        options: [{ label: "Monthly", value: "monthly" }],
+      },
+      { name: "description", label: "Description", type: "textarea" },
+      { name: "is_active", label: "Active", type: "boolean", default: true },
+    ],
+  },
+
   // ---------- Property Master ----------
   // Real-estate master-data hierarchy: Projects -> Buildings -> Units. Plain lookup tables,
   // no line items and no GL postings, so the generic flat-entity CRUD (this file +

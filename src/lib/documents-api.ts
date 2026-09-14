@@ -20,9 +20,23 @@ const AUDITED_DOCUMENT_ENTITIES = new Set(["invoices", "bills", "purchase-orders
 // /api/v1/sales-orders) can call the exact same logic as the app's own session-authenticated
 // routes instead of re-implementing it — one place to fix if the rules ever change.
 
+export interface DocumentLineBody {
+  item_id?: string | null;
+  description?: string;
+  quantity?: number;
+  rate?: number;
+  discount_percent?: number;
+  // Revenue Recognition (hasRevenueRecognition-gated — see documents.ts). Ignored entirely
+  // for any document type whose config doesn't set that flag, same as discount_percent is
+  // ignored unless hasLineDiscount is set.
+  revenue_recognition_rule_id?: string | null;
+  service_start_date?: string | null;
+  service_end_date?: string | null;
+}
+
 export interface DocumentBody {
   header?: Record<string, unknown>;
-  lines?: { item_id?: string | null; description?: string; quantity?: number; rate?: number; discount_percent?: number }[];
+  lines?: DocumentLineBody[];
   taxPercent?: number;
 }
 
@@ -68,7 +82,8 @@ async function validateDocumentRefs(
   cfg: DocumentConfig,
   orgId: string,
   header: Record<string, unknown> | undefined,
-  itemIds: (string | null | undefined)[]
+  itemIds: (string | null | undefined)[],
+  revenueRecognitionRuleIds: (string | null | undefined)[] = []
 ): Promise<string | null> {
   const partyValue = header?.[cfg.partyField];
   if (partyValue) {
@@ -89,10 +104,44 @@ async function validateDocumentRefs(
   if (cleanItemIds.length > 0 && !(await idsBelongToOrg("items", cleanItemIds, orgId))) {
     return "One or more selected items are invalid.";
   }
+  if (cfg.hasRevenueRecognition) {
+    const cleanRuleIds = revenueRecognitionRuleIds.filter((v): v is string => Boolean(v));
+    if (cleanRuleIds.length > 0 && !(await idsBelongToOrg("revenue_recognition_rules", cleanRuleIds, orgId))) {
+      return "One or more selected Revenue Recognition Rules are invalid.";
+    }
+  }
   return null;
 }
 
-function lineAmount(cfg: DocumentConfig, line: { quantity?: number; rate?: number; discount_percent?: number }) {
+/** Builds the parameterized INSERT for one line of `cfg.itemsTable`, varying its column list
+ * by which optional per-line features this document type has (hasLineDiscount,
+ * hasRevenueRecognition) — factored out of createDocument/updateDocument, which both need to
+ * insert lines the same way (create inserts fresh rows; update deletes-then-reinserts). */
+function buildLineInsert(
+  cfg: DocumentConfig,
+  parentId: string,
+  line: DocumentLineBody,
+  amount: number
+): { text: string; values: unknown[] } {
+  const columns = ["item_id", "description", "quantity", "rate"];
+  const values: unknown[] = [line.item_id || null, line.description || null, line.quantity ?? 0, line.rate ?? 0];
+  if (cfg.hasLineDiscount) {
+    columns.push("discount_percent");
+    values.push(Math.min(Math.max(Number(line.discount_percent ?? 0), 0), 100));
+  }
+  if (cfg.hasRevenueRecognition) {
+    columns.push("revenue_recognition_rule_id", "service_start_date", "service_end_date");
+    values.push(line.revenue_recognition_rule_id || null, line.service_start_date || null, line.service_end_date || null);
+  }
+  columns.push("amount");
+  values.push(amount);
+  const allColumns = [cfg.parentField, ...columns];
+  const allValues = [parentId, ...values];
+  const placeholders = allValues.map((_, i) => `$${i + 1}`).join(", ");
+  return { text: `INSERT INTO ${cfg.itemsTable} (${allColumns.join(", ")}) VALUES (${placeholders})`, values: allValues };
+}
+
+function lineAmount(cfg: DocumentConfig, line: DocumentLineBody) {
   const gross = Number(line.quantity ?? 0) * Number(line.rate ?? 0);
   if (!cfg.hasLineDiscount) return gross;
   const discount = Math.min(Math.max(Number(line.discount_percent ?? 0), 0), 100);
@@ -107,7 +156,13 @@ export async function createDocument(
 ): Promise<DocumentActionResult> {
   const lines = (body.lines ?? []).filter((l) => (l.description || l.item_id) && Number(l.quantity) > 0);
 
-  const refError = await validateDocumentRefs(cfg, orgId, body.header, lines.map((l) => l.item_id));
+  const refError = await validateDocumentRefs(
+    cfg,
+    orgId,
+    body.header,
+    lines.map((l) => l.item_id),
+    lines.map((l) => l.revenue_recognition_rule_id)
+  );
   if (refError) return { ok: false, error: refError, status: 400 };
 
   const subtotal = lines.reduce((sum, l) => sum + lineAmount(cfg, l), 0);
@@ -182,27 +237,8 @@ export async function createDocument(
 
     for (const line of lines) {
       const amount = lineAmount(cfg, line);
-      if (cfg.hasLineDiscount) {
-        await client.query(
-          `INSERT INTO ${cfg.itemsTable} (${cfg.parentField}, item_id, description, quantity, rate, discount_percent, amount)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [
-            headerId,
-            line.item_id || null,
-            line.description || null,
-            line.quantity ?? 0,
-            line.rate ?? 0,
-            Math.min(Math.max(Number(line.discount_percent ?? 0), 0), 100),
-            amount,
-          ]
-        );
-      } else {
-        await client.query(
-          `INSERT INTO ${cfg.itemsTable} (${cfg.parentField}, item_id, description, quantity, rate, amount)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [headerId, line.item_id || null, line.description || null, line.quantity ?? 0, line.rate ?? 0, amount]
-        );
-      }
+      const insert = buildLineInsert(cfg, headerId, line, amount);
+      await client.query(insert.text, insert.values);
     }
 
     if (cfg.key === "invoices") {
@@ -284,7 +320,13 @@ export async function updateDocument(
     let total = Number(current.total);
     const lines = linesProvided ? (body.lines ?? []).filter((l) => (l.description || l.item_id) && Number(l.quantity) > 0) : [];
 
-    const refError = await validateDocumentRefs(cfg, orgId, body.header, lines.map((l) => l.item_id));
+    const refError = await validateDocumentRefs(
+      cfg,
+      orgId,
+      body.header,
+      lines.map((l) => l.item_id),
+      lines.map((l) => l.revenue_recognition_rule_id)
+    );
     if (refError) {
       await client.query("ROLLBACK");
       return { ok: false, error: refError, status: 400 };
@@ -359,27 +401,8 @@ export async function updateDocument(
       await client.query(`DELETE FROM ${cfg.itemsTable} WHERE ${cfg.parentField} = $1`, [id]);
       for (const line of lines) {
         const amount = lineAmount(cfg, line);
-        if (cfg.hasLineDiscount) {
-          await client.query(
-            `INSERT INTO ${cfg.itemsTable} (${cfg.parentField}, item_id, description, quantity, rate, discount_percent, amount)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [
-              id,
-              line.item_id || null,
-              line.description || null,
-              line.quantity ?? 0,
-              line.rate ?? 0,
-              Math.min(Math.max(Number(line.discount_percent ?? 0), 0), 100),
-              amount,
-            ]
-          );
-        } else {
-          await client.query(
-            `INSERT INTO ${cfg.itemsTable} (${cfg.parentField}, item_id, description, quantity, rate, amount)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [id, line.item_id || null, line.description || null, line.quantity ?? 0, line.rate ?? 0, amount]
-          );
-        }
+        const insert = buildLineInsert(cfg, id, line, amount);
+        await client.query(insert.text, insert.values);
       }
     }
 

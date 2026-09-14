@@ -82,6 +82,13 @@ export const DEFAULT_ACCOUNTS: { code: string; name: string; type: string }[] = 
   // balances without the user hand-computing the difference — matches the 2026-09-11
   // migration's backfill of the same account onto every pre-existing organization.
   { code: "2030", name: "Opening Balance Adjustments", type: "other_current_liability" },
+  // Where Revenue Recognition (src/lib/auto-journal.ts's syncRevenueRecognitionSchedule /
+  // processDueRevenueRecognition) parks the not-yet-earned portion of a straight-line invoice
+  // line until each period's own service date arrives — a distinct liability from "Unearned
+  // Revenue" above (that one is about unallocated payments, this one is about unearned,
+  // already-invoiced income), matches the 2026-09-14 migration's backfill of the same account
+  // onto every pre-existing organization.
+  { code: "2040", name: "Deferred Revenue", type: "other_current_liability" },
 ];
 
 /**
