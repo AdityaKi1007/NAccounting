@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AttachmentsField from "@/components/attachments/AttachmentsField";
 import { uploadPendingAttachments } from "@/lib/attachments-client";
+import Combobox from "@/components/ui/Combobox";
 
 export interface ExpenseOption {
   value: string;
@@ -105,6 +106,16 @@ export default function ExpenseForm({
     const amt = parseFloat(amount) || 0;
     return round2((amt * rate) / 100);
   }, [amount, taxRateId, taxRateOptions]);
+
+  // Same {value,label} shape as BillForm.tsx's per-line Tax Combobox — the Tax field here used
+  // to be a plain native <select> (2026-09-15: "show tax as dropdown list on expenses creation
+  // page"), now a searchable dropdown matching the one Bills already has. "No Tax" is a real,
+  // explicit first option (value "") rather than relying on an unset Combobox's placeholder, so
+  // Tax can be cleared back to none through the same search-and-click flow as picking one.
+  const taxComboOptions = useMemo(
+    () => [{ value: "", label: "No Tax" }, ...taxRateOptions.map((o) => ({ value: o.value, label: `${o.label} (${o.rate}%)` }))],
+    [taxRateOptions]
+  );
 
   function resetForm() {
     setExpenseDate(new Date().toISOString().slice(0, 10));
@@ -283,14 +294,9 @@ export default function ExpenseForm({
           </label>
 
           <label className="label pt-1.5">Tax</label>
-          <select className="input max-w-xs" value={taxRateId} onChange={(e) => setTaxRateId(e.target.value)}>
-            <option value="">Select a Tax</option>
-            {taxRateOptions.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label} ({o.rate}%)
-              </option>
-            ))}
-          </select>
+          <div className="max-w-xs">
+            <Combobox options={taxComboOptions} value={taxRateId} onChange={setTaxRateId} placeholder="Select a Tax" />
+          </div>
 
           <label className="label pt-1.5">Reference#</label>
           <input className="input max-w-xs" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} />
