@@ -72,27 +72,20 @@ export default function BankAccountModal({
   const [data, setData] = useState<BankAccountData>(initial ?? empty);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [justSaved, setJustSaved] = useState(false);
 
   // Reset to whatever record this modal was opened for exactly when it opens — not on every
   // re-render — so switching between "Add New" and "Edit <row>" (or between two different
-  // rows) never shows stale data left over from a previous open. Necessary now that Save no
-  // longer closes the modal (see onSave below): without this, the first save after opening
-  // would leave `data` holding that saved row's values, and the *next* time this modal is
-  // opened for a different account (or for a fresh Add), it would incorrectly start from that
-  // leftover state instead of `initial`/`empty`.
+  // rows) never shows stale data left over from a previous open/close cycle.
   useEffect(() => {
     if (open) {
       setData(initial ?? empty);
       setError(null);
-      setJustSaved(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   function set<K extends keyof BankAccountData>(key: K, value: BankAccountData[K]) {
     setData((prev) => ({ ...prev, [key]: value }));
-    setJustSaved(false);
   }
 
   async function onSave() {
@@ -115,36 +108,15 @@ export default function BankAccountModal({
       setError(typeof body.error === "string" ? body.error : "Could not save this account.");
       return;
     }
-    const body = await res.json();
-    const row = body.row ?? {};
-    // Stay on this (now-editable) page rather than closing — the saved row becomes the new
-    // "current" data, including its id (so a second Save now PATCHes instead of POSTing again)
-    // and any server-assigned value such as an auto-created gl_account_id.
-    setData({
-      id: row.id,
-      account_type: row.account_type ?? data.account_type,
-      account_name: row.account_name ?? data.account_name,
-      account_code: row.account_code ?? "",
-      currency: row.currency ?? data.currency,
-      account_number: row.account_number ?? "",
-      bank_name: row.bank_name ?? "",
-      bank_identifier_code: row.bank_identifier_code ?? "",
-      description: row.description ?? "",
-      is_primary: row.is_primary ?? false,
-      gl_account_id: row.gl_account_id ?? "",
-      project_id: row.project_id ?? "",
-    });
-    setJustSaved(true);
+    // Close back to the Banking list and refresh it so the saved/new row shows up there.
     router.refresh();
+    onClose();
   }
 
   return (
     <Modal open={open} onClose={onClose} title={data.id ? "Edit Bank or Credit Card" : "Add Bank or Credit Card"} width="max-w-lg">
       <div className="space-y-4">
         {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
-        {justSaved && !error && (
-          <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">Saved. You can keep editing this account.</div>
-        )}
 
         <div>
           <label className="label">

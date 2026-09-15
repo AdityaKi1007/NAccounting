@@ -341,7 +341,12 @@ export default function PaymentDetailView({
         </div>
 
         <div className="mt-6">
-          <JournalPanel title={`Payment - ${payment.paymentNumber}`} lines={journalLines} currency={currency} />
+          <JournalPanel
+            title={`Payment - ${payment.paymentNumber}`}
+            lines={journalLines}
+            currency={currency}
+            expectPosted={payment.status === "paid"}
+          />
           {refunds.map((r) => (
             <JournalPanel
               key={r.id}

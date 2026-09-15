@@ -20,22 +20,48 @@ export interface JournalLineData {
 /** Read-only double-entry view of the journal auto-generated for one invoice or payment (see
  * src/lib/auto-journal.ts) — mirrors the "Journal" tab Zoho Books shows on a transaction.
  * Collapsed by default, matching the "Payments Received" panel already on the invoice detail
- * page. Renders nothing (not even the header) when there are no lines yet — e.g. a Draft
- * invoice, or a Paid payment whose Chart of Accounts is missing a required account — so the
- * page doesn't imply a posted entry that doesn't exist. */
+ * page. Renders nothing (not even the header) when there are no lines and the document was
+ * never expected to have one — e.g. a Draft invoice — so the page doesn't imply a posted entry
+ * that doesn't exist.
+ *
+ * Real bug found and fixed 2026-09-15: auto-journal.ts's account resolution deliberately never
+ * throws — if the org's Chart of Accounts is missing a required account (Accounts Receivable,
+ * an Income account, VAT Payable, a bank's own GL account, ...), the journal sync quietly posts
+ * nothing rather than failing the document save. That's the right call for the save itself, but
+ * this panel used to render nothing in that case too — visually IDENTICAL to a legitimate Draft
+ * document that has no journal yet, with no way to tell "hasn't posted yet" apart from "silently
+ * failed to post." A user reported invoices/receipts not generating journal entries and it
+ * turned out to be exactly this: an already-Sent/Paid document whose journal never posted, with
+ * nothing on the page saying so. `expectPosted` — true whenever the caller's own status logic
+ * says this document should have posted a journal by now — makes that failure visible instead. */
 export default function JournalPanel({
   title,
   lines,
   currency,
   defaultOpen = false,
+  expectPosted = false,
 }: {
   title: string;
   lines: JournalLineData[];
   currency: string;
   defaultOpen?: boolean;
+  expectPosted?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  if (lines.length === 0) return null;
+  if (lines.length === 0) {
+    if (!expectPosted) return null;
+    const label = title.split(" - ")[0]?.toLowerCase() || "document";
+    return (
+      <div className="no-print card mb-6 border border-amber-200 bg-amber-50">
+        <div className="px-4 py-3 text-sm text-amber-800">
+          <span className="font-medium">No journal entry was posted for this {label}.</span> This usually means
+          your Chart of Accounts is missing an account this transaction needs — an Accounts Receivable/Payable
+          account, an Income account, a tax account, or the bank account&apos;s own GL account. Check Chart of
+          Accounts for a missing or inactive entry, then re-save this {label} to try posting it again.
+        </div>
+      </div>
+    );
+  }
 
   const totalDebit = lines.reduce((sum, l) => sum + l.debit, 0);
   const totalCredit = lines.reduce((sum, l) => sum + l.credit, 0);

@@ -281,7 +281,12 @@ export default function InvoiceDetailView({
           )}
         </div>
 
-        <JournalPanel title={`Invoice - ${invoice.invoiceNumber}`} lines={journalLines} currency={currency} />
+        <JournalPanel
+          title={`Invoice - ${invoice.invoiceNumber}`}
+          lines={journalLines}
+          currency={currency}
+          expectPosted={invoice.status !== "draft" && invoice.status !== "void"}
+        />
 
         <div className="relative overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
           {invoice.status === "paid" && (
