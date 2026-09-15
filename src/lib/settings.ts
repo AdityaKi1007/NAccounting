@@ -40,7 +40,8 @@ export interface SettingsItem {
     | "api-usage"
     | "debug-logs"
     | "revenue-recognition"
-    | "access-matrix";
+    | "access-matrix"
+    | "custom-domain";
 }
 
 export interface SettingsGroup {
@@ -60,7 +61,7 @@ export const settingsGroups: SettingsGroup[] = [
     items: [
       { slug: "profile", label: "Profile", description: "Name, address, registration details, industry, regional settings and report basis.", view: "company-profile" },
       { slug: "branding", label: "Branding", description: "Logo, brand color and document theme.", view: "branding" },
-      { slug: "custom-domain", label: "Custom Domain", description: "Serve the customer portal from your own domain." },
+      { slug: "custom-domain", label: "Custom Domain", description: "Serve the customer portal from your own subdomain.", view: "custom-domain" },
       { slug: "locations", label: "Locations", description: "Manage multiple business locations or branches." },
       { slug: "ai-integration", label: "AI Integration", description: "Connect AI-assisted categorization and insights." },
       { slug: "manage-subscription", label: "Manage Subscription", description: "Plan, billing and invoices for this workspace." },

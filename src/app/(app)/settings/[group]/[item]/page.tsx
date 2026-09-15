@@ -9,6 +9,7 @@ import { orgDisplayId } from "@/lib/format";
 import CompanyProfileForm from "@/components/settings/CompanyProfileForm";
 import UsersList from "@/components/settings/UsersList";
 import BrandingForm from "@/components/settings/BrandingForm";
+import CustomDomainForm from "@/components/settings/CustomDomainForm";
 import TaxSettingsForm from "@/components/settings/TaxSettingsForm";
 import TaxPreferencesForm from "@/components/settings/TaxPreferencesForm";
 import CorporateTaxForm from "@/components/settings/CorporateTaxForm";
@@ -327,6 +328,18 @@ export default async function SettingsItemPage({
                 `SELECT id, accent_color, accent_custom_hex, theme_preference FROM organizations WHERE id = $1`,
                 [ctx.orgId]
               )) as { id: string; accent_color: string; accent_custom_hex: string | null; theme_preference: string }
+            }
+            canManage={canManage}
+          />
+        )}
+
+        {item.view === "custom-domain" && (
+          <CustomDomainForm
+            organization={
+              (await queryOne(
+                `SELECT id, custom_domain_subdomain, custom_domain_enabled FROM organizations WHERE id = $1`,
+                [ctx.orgId]
+              )) as { id: string; custom_domain_subdomain: string | null; custom_domain_enabled: boolean }
             }
             canManage={canManage}
           />
