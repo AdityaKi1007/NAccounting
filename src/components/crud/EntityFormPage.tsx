@@ -1,8 +1,9 @@
 import { getEntity } from "@/lib/entities";
 import { getRow, loadRefOptions } from "@/lib/crud";
 import { requireActiveContext } from "@/lib/session";
-import { requireModuleAccess } from "@/lib/module-access";
+import { requireModuleAccess, canManageOrgSettings } from "@/lib/module-access";
 import { notFound } from "next/navigation";
+import { ShieldAlert } from "lucide-react";
 import PageHeader from "@/components/crud/PageHeader";
 import EntityForm from "@/components/crud/EntityForm";
 
@@ -18,6 +19,30 @@ export default async function EntityFormPage({
 
   const ctx = await requireActiveContext();
   await requireModuleAccess(ctx, entityKey, "write");
+
+  // adminOnly entities (currencies/payment-terms/tax-rates/revenue-recognition-rules/roles —
+  // see entities.ts) are read-only for anyone who isn't an owner/admin/Super Admin. The API
+  // already rejects a write (see /api/entities/[entity]/route.ts), but reaching the New/Edit
+  // page at all would still show a fully-live form until a save failed with a 403 — so this
+  // blocks the page itself, same "Owner and Admin Only" card pattern as Audit Logs/Access
+  // Matrix/Debug Logs (settings/[group]/[item]/page.tsx). The entity's List page still renders
+  // for everyone (that's the "read only" part of read-only access).
+  if (entity.adminOnly && !canManageOrgSettings(ctx)) {
+    return (
+      <div>
+        <PageHeader title={id ? `Edit ${entity.label}` : `New ${entity.label}`} />
+        <div className="m-6 card flex flex-col items-center justify-center gap-3 py-24 text-center">
+          <ShieldAlert size={40} className="text-gray-300" />
+          <h2 className="text-base font-semibold text-ink-800">Owner and Admin Only</h2>
+          <p className="max-w-sm text-sm text-gray-500">
+            {entity.labelPlural} can only be changed by your organization&apos;s Owner, Admin, or a Super
+            Admin. You can view the current {entity.labelPlural.toLowerCase()} but not edit them.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const [refOptions, row] = await Promise.all([
     loadRefOptions(entity, ctx.orgId, ctx.memberships, id),
     id ? getRow(entityKey, ctx.orgId, id) : Promise.resolve(null),

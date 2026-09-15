@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { canManageOrgSettings } from "@/lib/module-access";
 import { decryptSecret } from "@/lib/secrets-crypto";
 import { testS3Connection, type S3Config } from "@/lib/s3";
 
@@ -12,7 +13,7 @@ import { testS3Connection, type S3Config } from "@/lib/s3";
 export async function POST(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can test file storage settings." }, { status: 403 });
   }
 

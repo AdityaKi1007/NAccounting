@@ -32,6 +32,13 @@ interface Props {
   /** When set, the title column renders as plain text — no link at all, not even to the edit
    * page — even though a titleField is set. See EntityDef.disableTitleLink. */
   disableTitleLink?: boolean;
+  /** Viewer can see this entity's rows but can't create, edit, or delete them (adminOnly
+   * entity — currencies/payment-terms/tax-rates/revenue-recognition-rules/roles — viewed by
+   * anyone other than an owner/admin/Super Admin; see EntityListPage.tsx). Same effect as
+   * disableTitleLink on the title column, plus the Actions column renders nothing instead of
+   * Edit/Delete (there's no separate read-only detail page for these flat entities to link to,
+   * unlike restrictedCrud's "View" link). */
+  readOnly?: boolean;
 }
 
 function fieldFor(fields: FieldDef[], name: string): FieldDef | undefined {
@@ -106,6 +113,7 @@ export default function DataTable({
   hasDetailView = false,
   restrictedCrud = false,
   disableTitleLink = false,
+  readOnly = false,
 }: Props) {
   const router = useRouter();
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -250,7 +258,7 @@ export default function DataTable({
               <tr key={id} className="hover:bg-gray-50">
                 {visibleColumns.map((col) => (
                   <td key={col} className={cellClass}>
-                    {col === titleField && disableTitleLink ? (
+                    {col === titleField && (disableTitleLink || readOnly) ? (
                       // Same title column, but this entity opted out of the usual
                       // click-name-to-open behavior (see EntityDef.disableTitleLink) — render
                       // as plain text; the row's pencil action is still the way to edit it.
@@ -272,7 +280,7 @@ export default function DataTable({
                   </td>
                 ))}
                 <td className="px-4 py-2.5 text-right">
-                  {restrictedCrud ? (
+                  {readOnly ? null : restrictedCrud ? (
                     <Link href={detailHref(id)} className="text-xs font-medium text-brand-600 hover:underline">
                       View
                     </Link>

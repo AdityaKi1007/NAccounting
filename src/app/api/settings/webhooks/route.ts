@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, query, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { canManageOrgSettings } from "@/lib/module-access";
 import { generateWebhookToken, INCOMING_WEBHOOK_DAILY_LIMIT } from "@/lib/webhooks";
 
 export async function GET() {
@@ -34,7 +35,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can create webhooks." }, { status: 403 });
   }
 

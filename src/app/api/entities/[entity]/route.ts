@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getEntity } from "@/lib/entities";
 import { listRows, createRow, resolveOrgIdForWrite, validateRefFields } from "@/lib/crud";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
-import { moduleAccessErrorResponse } from "@/lib/module-access";
+import { moduleAccessErrorResponse, canManageOrgSettings } from "@/lib/module-access";
 import { pool } from "@/lib/db";
 import {
   syncPaymentJournal,
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: { entity: str
   }
   // adminOnly entities (e.g. "roles") aren't nav modules, so moduleAccessErrorResponse below
   // doesn't gate them at all — this is a separate, explicit check for that smaller set.
-  if (entity.adminOnly && ctx.role !== "owner" && ctx.role !== "admin" && !ctx.isSuperAdmin) {
+  if (entity.adminOnly && !canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can manage this." }, { status: 403 });
   }
   const accessError = await moduleAccessErrorResponse(ctx, params.entity, "write");

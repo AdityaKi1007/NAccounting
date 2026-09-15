@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, query, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { canManageOrgSettings } from "@/lib/module-access";
 import { MODULE_KEYS } from "@/lib/modules";
 import { isAccessLevel, legacyFlagsOf } from "@/lib/access-levels";
 
@@ -25,7 +26,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin" && !ctx.isSuperAdmin) {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can edit role permissions." }, { status: 403 });
   }
 

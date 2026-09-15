@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { canManageOrgSettings } from "@/lib/module-access";
 
 // Backs the "Enable Multiple Transaction Series" toggle on the Transaction Number Series
 // settings page. This build implements only a single ("Default") series per module — the
@@ -20,7 +21,7 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can change this setting." }, { status: 403 });
   }
 

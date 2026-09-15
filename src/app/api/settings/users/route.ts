@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, query, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { canManageOrgSettings } from "@/lib/module-access";
 import { nanoid } from "nanoid";
 import bcrypt from "bcryptjs";
 
@@ -24,7 +25,7 @@ const ROLES = ["owner", "admin", "staff"];
 export async function POST(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can invite users." }, { status: 403 });
   }
 

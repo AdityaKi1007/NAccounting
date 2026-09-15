@@ -9,7 +9,13 @@ import { ALLOWED_LOGO_TYPES, MAX_LOGO_SIZE_BYTES } from "@/lib/org-logo";
  * "Save" step, matching AttachmentsField's own live-mode convention) rather than being
  * folded into CompanyProfileForm's own onSave — a logo is a single file, not one of the
  * plain text/select fields that form's Save button already batches together. */
-export default function OrgLogoUploader({ initialLogoDataUri }: { initialLogoDataUri: string | null }) {
+export default function OrgLogoUploader({
+  initialLogoDataUri,
+  canManage,
+}: {
+  initialLogoDataUri: string | null;
+  canManage: boolean;
+}) {
   const [logoDataUri, setLogoDataUri] = useState(initialLogoDataUri);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,8 +69,8 @@ export default function OrgLogoUploader({ initialLogoDataUri }: { initialLogoDat
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        disabled={uploading}
-        className="flex h-24 w-24 shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-md border border-dashed border-gray-300 text-center text-xs text-gray-500 hover:border-brand-400 hover:text-brand-600"
+        disabled={uploading || !canManage}
+        className="flex h-24 w-24 shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-md border border-dashed border-gray-300 text-center text-xs text-gray-500 hover:border-brand-400 hover:text-brand-600 disabled:cursor-not-allowed disabled:opacity-60"
         title={logoDataUri ? "Change logo" : "Upload Logo"}
       >
         {uploading ? (
@@ -84,7 +90,7 @@ export default function OrgLogoUploader({ initialLogoDataUri }: { initialLogoDat
         <p>This logo will be displayed in transaction PDFs and email notifications.</p>
         <p className="mt-1">Preferred Image Dimensions: 240 x 240 pixels @ 72 DPI</p>
         <p>Supported Files: jpg, jpeg, png, gif, bmp &middot; Max 1MB</p>
-        {logoDataUri && (
+        {logoDataUri && canManage && (
           <button type="button" onClick={onRemove} className="mt-1 text-red-600 hover:underline">
             Remove Logo
           </button>

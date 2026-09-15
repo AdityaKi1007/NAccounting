@@ -12,7 +12,13 @@ import SettingsEntityList from "@/components/settings/SettingsEntityList";
 // is replaced with a link to the rules table below rather than removed outright — the
 // reference screenshot's own call to action, now pointed at something real instead of a
 // support form this app doesn't have.
-export default function RevenueRecognitionSettings({ orgId }: { orgId: string }) {
+export default function RevenueRecognitionSettings({
+  orgId,
+  canManage = true,
+}: {
+  orgId: string;
+  canManage?: boolean;
+}) {
   return (
     <div className="flex flex-col gap-6">
       <div className="card flex flex-col items-center gap-4 py-10 text-center">
@@ -53,7 +59,7 @@ export default function RevenueRecognitionSettings({ orgId }: { orgId: string })
 
       <div id="revenue-recognition-rules">
         <h3 className="mb-3 text-sm font-semibold text-ink-800">Revenue Recognition Rules</h3>
-        <SettingsEntityList entityKey="revenue-recognition-rules" orgId={orgId} />
+        <SettingsEntityList entityKey="revenue-recognition-rules" orgId={orgId} canManage={canManage} />
       </div>
     </div>
   );

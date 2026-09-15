@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { canManageOrgSettings } from "@/lib/module-access";
 
 const CORPORATE_TAX_COLUMNS = `id, corporate_tax_registration_number, corporate_tax_rate, corporate_tax_first_return_from,
   corporate_tax_liability_account_id, corporate_tax_liability_offset_account_id,
@@ -32,7 +33,7 @@ function nullableStr(v: unknown) {
 export async function PATCH(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can update corporate tax settings." }, { status: 403 });
   }
 

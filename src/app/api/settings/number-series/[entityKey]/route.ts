@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { canManageOrgSettings } from "@/lib/module-access";
 import { getOrCreateNumberSeries, updateNumberSeries } from "@/lib/number-series";
 
 export async function GET(_req: NextRequest, { params }: { params: { entityKey: string } }) {
@@ -13,7 +14,7 @@ export async function GET(_req: NextRequest, { params }: { params: { entityKey: 
 export async function PATCH(req: NextRequest, { params }: { params: { entityKey: string } }) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json(
       { error: "Only owners and admins can update numbering preferences." },
       { status: 403 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { canManageOrgSettings } from "@/lib/module-access";
 
 const ORG_COLUMNS = `id, name, currency, fiscal_year_start, industry, location_country, is_designated_zone,
   registration_number, tax_registration_number, address_attention, address_street1, address_street2,
@@ -25,7 +26,7 @@ function nullableStr(v: unknown) {
 export async function PATCH(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can update organization settings." }, { status: 403 });
   }
 

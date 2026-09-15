@@ -146,7 +146,7 @@ function buildPreview(entity: string, operation: "create" | "update", specs: Fie
   return { request, response };
 }
 
-export default function ApiFieldConfigBuilder() {
+export default function ApiFieldConfigBuilder({ canManage = true }: { canManage?: boolean }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [disabled, setDisabled] = useState<Record<string, string[]>>({});
@@ -174,6 +174,7 @@ export default function ApiFieldConfigBuilder() {
   const disabledSet = useMemo(() => new Set(disabled[key] ?? []), [disabled, key]);
 
   function toggleField(name: string) {
+    if (!canManage) return;
     setSaved(false);
     setDisabled((prev) => {
       const current = new Set(prev[key] ?? []);
@@ -224,6 +225,12 @@ export default function ApiFieldConfigBuilder() {
         A field you turn off is silently ignored by the real API if a caller still sends it — this is saved per
         organization and takes effect immediately.
       </p>
+
+      {!canManage && (
+        <div className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Only owners, admins, and Super Admin can change the request payload configuration. You can view it below.
+        </div>
+      )}
 
       <div className="mb-3 flex flex-wrap gap-1.5 border-b border-gray-100 pb-3">
         {ENTITY_ORDER.filter((e) => catalog[e]).map((e) => (
@@ -278,7 +285,7 @@ export default function ApiFieldConfigBuilder() {
                       <input
                         type="checkbox"
                         checked={isOn}
-                        disabled={f.core}
+                        disabled={f.core || !canManage}
                         onChange={() => toggleField(f.name)}
                         className="h-3.5 w-3.5 rounded border-gray-300"
                       />
@@ -291,7 +298,7 @@ export default function ApiFieldConfigBuilder() {
               })}
             </div>
             <div className="mt-3 flex items-center gap-2">
-              <button onClick={onSave} disabled={saving} className="btn-primary">
+              <button onClick={onSave} disabled={saving || !canManage} className="btn-primary">
                 {saving ? "Saving..." : "Save Configuration"}
               </button>
               {saved && (

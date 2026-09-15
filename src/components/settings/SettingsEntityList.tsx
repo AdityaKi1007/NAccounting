@@ -10,7 +10,18 @@ import DataTable from "@/components/crud/DataTable";
  * same generic /[slug] list/create/edit/delete routes rather than duplicating them — the
  * settings page just gives it a home under Roles / Currencies / Payment Terms.
  */
-export default async function SettingsEntityList({ entityKey, orgId }: { entityKey: string; orgId: string }) {
+export default async function SettingsEntityList({
+  entityKey,
+  orgId,
+  canManage = true,
+}: {
+  entityKey: string;
+  orgId: string;
+  /** Caller-computed via canManageOrgSettings(ctx) — false hides the "+ New" button and makes
+   * the embedded DataTable read-only (no Edit/Delete, plain-text title). Defaults to true so
+   * any not-yet-updated caller keeps today's behavior. */
+  canManage?: boolean;
+}) {
   const entity = getEntity(entityKey);
   if (!entity) notFound();
 
@@ -21,11 +32,13 @@ export default async function SettingsEntityList({ entityKey, orgId }: { entityK
 
   return (
     <div>
-      <div className="mb-4 flex justify-end">
-        <Link href={`/${entityKey}/new`} className="btn-primary">
-          <Plus size={16} /> New {entity.label}
-        </Link>
-      </div>
+      {canManage && (
+        <div className="mb-4 flex justify-end">
+          <Link href={`/${entityKey}/new`} className="btn-primary">
+            <Plus size={16} /> New {entity.label}
+          </Link>
+        </div>
+      )}
       <div className="card">
         <DataTable
           entityKey={entityKey}
@@ -33,8 +46,13 @@ export default async function SettingsEntityList({ entityKey, orgId }: { entityK
           columns={entity.listColumns}
           fields={entity.fields}
           refOptions={refOptions}
-          emptyLabel={`No ${entity.labelPlural.toLowerCase()} yet. Click "New ${entity.label}" to add your first one.`}
+          emptyLabel={
+            canManage
+              ? `No ${entity.labelPlural.toLowerCase()} yet. Click "New ${entity.label}" to add your first one.`
+              : `No ${entity.labelPlural.toLowerCase()} yet.`
+          }
           entityKind={entity.kind}
+          readOnly={!canManage}
         />
       </div>
     </div>

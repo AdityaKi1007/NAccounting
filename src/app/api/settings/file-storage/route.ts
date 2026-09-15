@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { canManageOrgSettings } from "@/lib/module-access";
 import { encryptSecret } from "@/lib/secrets-crypto";
 import { invalidateOrgS3Config } from "@/lib/s3";
 
@@ -47,7 +48,7 @@ function nullableStr(v: unknown) {
 export async function PATCH(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can update file storage settings." }, { status: 403 });
   }
 
@@ -96,7 +97,7 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE() {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can update file storage settings." }, { status: 403 });
   }
 

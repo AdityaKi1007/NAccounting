@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { canManageOrgSettings } from "@/lib/module-access";
 import { ACCENT_PRESETS, isValidHex } from "@/lib/theme";
 
 const BRANDING_COLUMNS = `id, accent_color, accent_custom_hex, theme_preference`;
@@ -16,7 +17,7 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can update branding." }, { status: 403 });
   }
 

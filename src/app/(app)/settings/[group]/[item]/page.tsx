@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ChevronRight, Settings2, ShieldAlert } from "lucide-react";
 import { getSettingsItem } from "@/lib/settings";
 import { requireActiveContext } from "@/lib/session";
+import { canManageOrgSettings } from "@/lib/module-access";
 import { queryOne, query } from "@/lib/db";
 import { orgDisplayId } from "@/lib/format";
 import CompanyProfileForm from "@/components/settings/CompanyProfileForm";
@@ -39,6 +40,14 @@ export default async function SettingsItemPage({
   const { group, item } = found;
 
   const ctx = await requireActiveContext();
+
+  // Settings edit access: owner/admin of this org, or a platform Super Admin regardless of
+  // their membership role here — see canManageOrgSettings (src/lib/module-access.ts). Every
+  // /api/settings/* route (and /api/entities/[entity] for the adminOnly entities below)
+  // independently enforces the same check; this is what keeps the page itself from showing a
+  // fully-live form to anyone else. 2026-09-15: "setting editable access should be with super
+  // admin and company admin only, other roles should have read only access."
+  const canManage = canManageOrgSettings(ctx);
 
   const orgSeq =
     item.view === "company-profile"
@@ -132,17 +141,15 @@ export default async function SettingsItemPage({
         })()
       : null;
 
-  // Owner/Admin only, per the account owner's explicit answer when this feature was scoped —
-  // the API route (/api/settings/audit-logs) enforces the same check independently, this is
-  // just what keeps the page itself from showing the log viewer to anyone else.
-  const canViewAuditLogs = ctx.role === "owner" || ctx.role === "admin";
+  // Owner/Admin/Super Admin — same canManageOrgSettings gate as every other settings screen
+  // (updated 2026-09-15; previously Owner/Admin only, missing the Super Admin exemption that
+  // /api/settings/audit-logs already enforces independently).
+  const canViewAuditLogs = canManage;
 
   // Debug Logs — Owner/Admin/Super Admin, per the request ("delete option ... by admin and
-  // super admin"); owner is included for the same reason canManageAccessMatrix includes it
-  // (owner is a strict superset of admin everywhere else in this app, and every
-  // /api/settings/debug-logs* route enforces this same check independently regardless of what
-  // this page shows).
-  const canManageDebugLogs = ctx.role === "owner" || ctx.role === "admin" || ctx.isSuperAdmin;
+  // super admin"); every /api/settings/debug-logs* route enforces this same check
+  // independently regardless of what this page shows.
+  const canManageDebugLogs = canManage;
 
   const debugLogsEnabled =
     item.view === "debug-logs" && canManageDebugLogs
@@ -157,7 +164,7 @@ export default async function SettingsItemPage({
   // Admin"). API-side, this is independently enforced by the "roles" entity's adminOnly flag
   // and the /api/settings/roles/[id]/permissions PUT route — this is just what keeps the page
   // itself from showing the roles table / matrix to an ordinary staff member.
-  const canManageAccessMatrix = ctx.role === "owner" || ctx.role === "admin" || ctx.isSuperAdmin;
+  const canManageAccessMatrix = canManage;
 
   const accessMatrixRoles =
     item.view === "access-matrix" && canManageAccessMatrix
@@ -288,6 +295,7 @@ export default async function SettingsItemPage({
               }
             }
             initialLogoDataUri={logoDataUri}
+            canManage={canManage}
           />
         )}
 
@@ -308,7 +316,7 @@ export default async function SettingsItemPage({
                 ctx.orgId,
               ])) as { id: string; name: string }[]
             }
-            canManage={ctx.role === "owner" || ctx.role === "admin"}
+            canManage={canManage}
           />
         )}
 
@@ -320,6 +328,7 @@ export default async function SettingsItemPage({
                 [ctx.orgId]
               )) as { id: string; accent_color: string; accent_custom_hex: string | null; theme_preference: string }
             }
+            canManage={canManage}
           />
         )}
 
@@ -344,13 +353,13 @@ export default async function SettingsItemPage({
                 tax_reporting_period: string;
               }
             }
-            canManage={ctx.role === "owner" || ctx.role === "admin"}
+            canManage={canManage}
           />
         )}
 
         {item.view === "tax-rates-list" && (
           <div className="space-y-3">
-            <SettingsEntityList entityKey="tax-rates" orgId={ctx.orgId} />
+            <SettingsEntityList entityKey="tax-rates" orgId={ctx.orgId} canManage={canManage} />
             <p className="text-xs text-gray-400">
               Note: <span className="font-medium text-green-700">Default Tax</span> rate will be used for
               transactions involving a customer whose Tax Preference isn&apos;t configured.
@@ -365,7 +374,7 @@ export default async function SettingsItemPage({
                 ctx.orgId,
               ])) as { id: string; profit_margin_scheme_enabled: boolean }
             }
-            canManage={ctx.role === "owner" || ctx.role === "admin"}
+            canManage={canManage}
           />
         )}
 
@@ -398,7 +407,7 @@ export default async function SettingsItemPage({
                 [ctx.orgId]
               )) as { id: string; code: string | null; name: string }[]
             ).map((a) => ({ id: a.id, label: a.code ? `${a.code} - ${a.name}` : a.name }))}
-            canManage={ctx.role === "owner" || ctx.role === "admin"}
+            canManage={canManage}
           />
         )}
 
@@ -412,8 +421,12 @@ export default async function SettingsItemPage({
           />
         )}
 
-        {item.view === "currencies-list" && <SettingsEntityList entityKey="currencies" orgId={ctx.orgId} />}
-        {item.view === "payment-terms-list" && <SettingsEntityList entityKey="payment-terms" orgId={ctx.orgId} />}
+        {item.view === "currencies-list" && (
+          <SettingsEntityList entityKey="currencies" orgId={ctx.orgId} canManage={canManage} />
+        )}
+        {item.view === "payment-terms-list" && (
+          <SettingsEntityList entityKey="payment-terms" orgId={ctx.orgId} canManage={canManage} />
+        )}
 
         {item.view === "reminders" && (
           <RemindersManager
@@ -427,6 +440,7 @@ export default async function SettingsItemPage({
                 ctx.orgId,
               ])) as never[]
             }
+            canManage={canManage}
           />
         )}
 
@@ -447,7 +461,7 @@ export default async function SettingsItemPage({
                 )
               )?.multiple_transaction_series_enabled
             )}
-            canManage={ctx.role === "owner" || ctx.role === "admin"}
+            canManage={canManage}
           />
         )}
 
@@ -533,7 +547,7 @@ export default async function SettingsItemPage({
                 ctx.orgId,
               ]))?.sum ?? 0
             )}
-            canManage={ctx.role === "owner" || ctx.role === "admin"}
+            canManage={canManage}
           />
         )}
 
@@ -546,10 +560,11 @@ export default async function SettingsItemPage({
                 [ctx.orgId]
               )) as never[]
             }
+            canManage={canManage}
           />
         )}
 
-        {item.view === "api-keys" && <ApiFieldConfigBuilder />}
+        {item.view === "api-keys" && <ApiFieldConfigBuilder canManage={canManage} />}
 
         {item.view === "email-settings" && (
           <EmailSettingsForm
@@ -581,7 +596,7 @@ export default async function SettingsItemPage({
               };
             })()}
             defaultTestEmail={ctx.userEmail}
-            canManage={ctx.role === "owner" || ctx.role === "admin"}
+            canManage={canManage}
           />
         )}
 
@@ -598,7 +613,7 @@ export default async function SettingsItemPage({
                 secret_key_set: Boolean(row?.secret_key_set),
               };
             })()}
-            canManage={ctx.role === "owner" || ctx.role === "admin"}
+            canManage={canManage}
           />
         )}
 
@@ -608,10 +623,10 @@ export default async function SettingsItemPage({
           ) : (
             <div className="card flex flex-col items-center justify-center gap-3 py-24 text-center">
               <ShieldAlert size={40} className="text-gray-300" />
-              <h2 className="text-base font-semibold text-ink-800">Owner and Admin Only</h2>
+              <h2 className="text-base font-semibold text-ink-800">Owner, Admin and Super Admin Only</h2>
               <p className="max-w-sm text-sm text-gray-500">
-                Audit logs are visible only to your organization&apos;s Owner and Admin. Ask one of them if you
-                need to see a change here.
+                Audit logs are visible only to your organization&apos;s Owner, Admin, and Super Admin. Ask one of
+                them if you need to see a change here.
               </p>
             </div>
           ))}
@@ -639,14 +654,16 @@ export default async function SettingsItemPage({
           />
         )}
 
-        {item.view === "revenue-recognition" && <RevenueRecognitionSettings orgId={ctx.orgId} />}
+        {item.view === "revenue-recognition" && (
+          <RevenueRecognitionSettings orgId={ctx.orgId} canManage={canManage} />
+        )}
 
         {item.view === "access-matrix" &&
           (canManageAccessMatrix ? (
             <div className="space-y-6">
               <div>
                 <h2 className="mb-2 text-sm font-semibold text-ink-800">Roles</h2>
-                <SettingsEntityList entityKey="roles" orgId={ctx.orgId} />
+                <SettingsEntityList entityKey="roles" orgId={ctx.orgId} canManage={canManageAccessMatrix} />
               </div>
               <div>
                 <h2 className="mb-2 text-sm font-semibold text-ink-800">Access Matrix</h2>
@@ -656,10 +673,10 @@ export default async function SettingsItemPage({
           ) : (
             <div className="card flex flex-col items-center justify-center gap-3 py-24 text-center">
               <ShieldAlert size={40} className="text-gray-300" />
-              <h2 className="text-base font-semibold text-ink-800">Owner and Admin Only</h2>
+              <h2 className="text-base font-semibold text-ink-800">Owner, Admin and Super Admin Only</h2>
               <p className="max-w-sm text-sm text-gray-500">
-                The Access Matrix is visible only to your organization&apos;s Owner and Admin. Ask one of
-                them if you need a role&apos;s access changed.
+                The Access Matrix is visible only to your organization&apos;s Owner, Admin, and Super Admin. Ask
+                one of them if you need a role&apos;s access changed.
               </p>
             </div>
           ))}

@@ -42,9 +42,11 @@ function scheduleLabel(r: ReminderRow, docTypeSingular: string) {
 export default function RemindersManager({
   invoiceReminders,
   billReminders,
+  canManage = true,
 }: {
   invoiceReminders: ReminderRow[];
   billReminders: ReminderRow[];
+  canManage?: boolean;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<"invoices" | "bills">("invoices");
@@ -82,6 +84,7 @@ export default function RemindersManager({
   }
 
   async function onToggle(r: ReminderRow) {
+    if (!canManage) return;
     await fetch(`/api/settings/reminders/${r.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -121,6 +124,11 @@ export default function RemindersManager({
 
   return (
     <div>
+      {!canManage && (
+        <div className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
+          Only owners, admins, and Super Admin can change reminders. You can view the current schedule below.
+        </div>
+      )}
       <div className="mb-4 flex border-b border-gray-200">
         {(["invoices", "bills"] as const).map((t) => (
           <button
@@ -197,7 +205,8 @@ export default function RemindersManager({
                         <td className="px-4 py-2.5">
                           <button
                             onClick={() => onToggle(r)}
-                            className={`relative h-5 w-9 rounded-full transition-colors ${r.is_active ? "bg-brand-600" : "bg-gray-300"}`}
+                            disabled={!canManage}
+                            className={`relative h-5 w-9 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${r.is_active ? "bg-brand-600" : "bg-gray-300"}`}
                             title={r.is_active ? "On" : "Off"}
                           >
                             <span
@@ -208,29 +217,33 @@ export default function RemindersManager({
                           </button>
                         </td>
                         <td className="px-4 py-2.5 text-right">
-                          <button
-                            onClick={() => openEdit(r)}
-                            className="rounded-md border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-100 hover:text-brand-600"
-                            title="Edit"
-                          >
-                            <Pencil size={14} />
-                          </button>
+                          {canManage && (
+                            <button
+                              onClick={() => openEdit(r)}
+                              className="rounded-md border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-100 hover:text-brand-600"
+                              title="Edit"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
                   </Fragment>
                 );
               })}
-              <tr>
-                <td colSpan={4} className="px-4 py-2.5">
-                  <button
-                    onClick={() => openNew("due_date")}
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:underline"
-                  >
-                    <PlusCircle size={16} /> New Reminder
-                  </button>
-                </td>
-              </tr>
+              {canManage && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-2.5">
+                    <button
+                      onClick={() => openNew("due_date")}
+                      className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:underline"
+                    >
+                      <PlusCircle size={16} /> New Reminder
+                    </button>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

@@ -79,9 +79,11 @@ interface Org {
 export default function CompanyProfileForm({
   organization,
   initialLogoDataUri,
+  canManage,
 }: {
   organization: Org;
   initialLogoDataUri: string | null;
+  canManage: boolean;
 }) {
   const router = useRouter();
   const o = organization;
@@ -151,14 +153,22 @@ export default function CompanyProfileForm({
     router.refresh();
   }
 
+  const disabled = !canManage;
+
   return (
     <div className="max-w-3xl space-y-6">
+      {!canManage && (
+        <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
+          Only owners, admins, and Super Admin can change the company profile. You can view the current settings
+          below.
+        </div>
+      )}
       {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {message && <div className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div>}
 
       <div className="card space-y-4 p-6">
         <h2 className="text-sm font-semibold text-ink-800">Organization Logo</h2>
-        <OrgLogoUploader initialLogoDataUri={initialLogoDataUri} />
+        <OrgLogoUploader initialLogoDataUri={initialLogoDataUri} canManage={canManage} />
       </div>
 
       <div className="card space-y-4 p-6">
@@ -168,13 +178,13 @@ export default function CompanyProfileForm({
             <label className="label">
               Organization Name<span className="text-red-500"> *</span>
             </label>
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+            <input className="input" value={name} disabled={disabled} onChange={(e) => setName(e.target.value)} />
           </div>
           <div>
             <label className="label">
               Industry<span className="text-red-500"> *</span>
             </label>
-            <select className="input" value={industry} onChange={(e) => setIndustry(e.target.value)}>
+            <select className="input" value={industry} disabled={disabled} onChange={(e) => setIndustry(e.target.value)}>
               <option value="">Select an industry</option>
               {INDUSTRIES.map((i) => (
                 <option key={i} value={i}>
@@ -187,7 +197,7 @@ export default function CompanyProfileForm({
             <label className="label">
               Organization Location<span className="text-red-500"> *</span>
             </label>
-            <select className="input" value={locationCountry} onChange={(e) => setLocationCountry(e.target.value)}>
+            <select className="input" value={locationCountry} disabled={disabled} onChange={(e) => setLocationCountry(e.target.value)}>
               {COUNTRIES.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -198,6 +208,7 @@ export default function CompanyProfileForm({
               <input
                 type="checkbox"
                 checked={isDesignatedZone}
+                disabled={disabled}
                 onChange={(e) => setIsDesignatedZone(e.target.checked)}
                 className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
               />
@@ -209,6 +220,7 @@ export default function CompanyProfileForm({
             <input
               className="input"
               value={registrationNumber}
+              disabled={disabled}
               placeholder="Trade license / registration number"
               onChange={(e) => setRegistrationNumber(e.target.value)}
             />
@@ -218,6 +230,7 @@ export default function CompanyProfileForm({
             <input
               className="input"
               value={taxRegistrationNumber}
+              disabled={disabled}
               placeholder="VAT / TRN number"
               onChange={(e) => setTaxRegistrationNumber(e.target.value)}
             />
@@ -232,38 +245,44 @@ export default function CompanyProfileForm({
             className="input sm:col-span-2"
             placeholder="Attention"
             value={addressAttention}
+            disabled={disabled}
             onChange={(e) => setAddressAttention(e.target.value)}
           />
           <input
             className="input sm:col-span-2"
             placeholder="Street 1"
             value={addressStreet1}
+            disabled={disabled}
             onChange={(e) => setAddressStreet1(e.target.value)}
           />
           <input
             className="input sm:col-span-2"
             placeholder="Street 2"
             value={addressStreet2}
+            disabled={disabled}
             onChange={(e) => setAddressStreet2(e.target.value)}
           />
-          <input className="input" placeholder="City" value={addressCity} onChange={(e) => setAddressCity(e.target.value)} />
+          <input className="input" placeholder="City" value={addressCity} disabled={disabled} onChange={(e) => setAddressCity(e.target.value)} />
           <input
             className="input"
             placeholder="ZIP/Postal Code"
             value={addressZip}
+            disabled={disabled}
             onChange={(e) => setAddressZip(e.target.value)}
           />
           <input
             className="input"
             placeholder="State / Emirate"
             value={addressState}
+            disabled={disabled}
             onChange={(e) => setAddressState(e.target.value)}
           />
-          <input className="input" placeholder="Phone" value={addressPhone} onChange={(e) => setAddressPhone(e.target.value)} />
+          <input className="input" placeholder="Phone" value={addressPhone} disabled={disabled} onChange={(e) => setAddressPhone(e.target.value)} />
           <input
             className="input sm:col-span-2"
             placeholder="Fax Number"
             value={addressFax}
+            disabled={disabled}
             onChange={(e) => setAddressFax(e.target.value)}
           />
         </div>
@@ -274,7 +293,7 @@ export default function CompanyProfileForm({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="label">Time Zone</label>
-            <select className="input" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+            <select className="input" value={timezone} disabled={disabled} onChange={(e) => setTimezone(e.target.value)}>
               {TIMEZONES.map((t) => (
                 <option key={t.value} value={t.value}>
                   {t.label}
@@ -284,7 +303,7 @@ export default function CompanyProfileForm({
           </div>
           <div>
             <label className="label">Date Format</label>
-            <select className="input" value={dateFormat} onChange={(e) => setDateFormat(e.target.value)}>
+            <select className="input" value={dateFormat} disabled={disabled} onChange={(e) => setDateFormat(e.target.value)}>
               {DATE_FORMATS.map((f) => (
                 <option key={f} value={f}>
                   {f}
@@ -294,7 +313,7 @@ export default function CompanyProfileForm({
           </div>
           <div>
             <label className="label">Base Currency</label>
-            <select className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+            <select className="input" value={currency} disabled={disabled} onChange={(e) => setCurrency(e.target.value)}>
               {CURRENCIES.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -307,6 +326,7 @@ export default function CompanyProfileForm({
             <input
               className="input"
               value={fiscalYearStart}
+              disabled={disabled}
               placeholder="01-01"
               onChange={(e) => setFiscalYearStart(e.target.value)}
             />
@@ -323,6 +343,7 @@ export default function CompanyProfileForm({
                     type="radio"
                     name="report_basis"
                     checked={reportBasis === opt.value}
+                    disabled={disabled}
                     onChange={() => setReportBasis(opt.value)}
                     className="h-4 w-4 border-gray-300 text-brand-600 focus:ring-brand-500"
                   />
@@ -335,7 +356,7 @@ export default function CompanyProfileForm({
       </div>
 
       <div className="border-t border-gray-100 pt-4">
-        <button onClick={onSave} disabled={saving} className="btn-primary">
+        <button onClick={onSave} disabled={saving || disabled} className="btn-primary">
           {saving ? "Saving..." : "Save Changes"}
         </button>
       </div>

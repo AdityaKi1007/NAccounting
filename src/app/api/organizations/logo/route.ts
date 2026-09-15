@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { canManageOrgSettings } from "@/lib/module-access";
 import { ALLOWED_LOGO_TYPES, MAX_LOGO_SIZE_BYTES, buildOrgLogoKey } from "@/lib/org-logo";
 import { putAttachmentObject, deleteAttachmentObject, getOrgLogoDataUri, AttachmentsNotConfiguredError } from "@/lib/s3";
 
@@ -25,7 +26,7 @@ function formatBytes(bytes: number): string {
 export async function POST(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can update the organization logo." }, { status: 403 });
   }
 
@@ -78,7 +79,7 @@ export async function POST(req: NextRequest) {
 export async function DELETE() {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can update the organization logo." }, { status: 403 });
   }
 

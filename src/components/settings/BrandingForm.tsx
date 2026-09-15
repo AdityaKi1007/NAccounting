@@ -15,7 +15,7 @@ interface Org {
 
 const PRESET_KEYS = Object.keys(ACCENT_PRESETS);
 
-export default function BrandingForm({ organization }: { organization: Org }) {
+export default function BrandingForm({ organization, canManage }: { organization: Org; canManage: boolean }) {
   const router = useRouter();
   const o = organization;
 
@@ -52,6 +52,11 @@ export default function BrandingForm({ organization }: { organization: Org }) {
 
   return (
     <div className="max-w-3xl space-y-6">
+      {!canManage && (
+        <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
+          Only owners, admins, and Super Admin can change branding. You can view the current settings below.
+        </div>
+      )}
       {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {message && <div className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div>}
 
@@ -84,7 +89,8 @@ export default function BrandingForm({ organization }: { organization: Org }) {
                 key={opt.value}
                 type="button"
                 onClick={() => setThemePreference(opt.value)}
-                className={`flex flex-col items-center gap-2 rounded-md border p-4 text-sm ${
+                disabled={!canManage}
+                className={`flex flex-col items-center gap-2 rounded-md border p-4 text-sm disabled:cursor-not-allowed disabled:opacity-60 ${
                   selected ? "border-brand-600 ring-1 ring-brand-600" : "border-gray-200 hover:border-gray-300"
                 }`}
               >
@@ -112,7 +118,8 @@ export default function BrandingForm({ organization }: { organization: Org }) {
                 type="button"
                 title={preset.label}
                 onClick={() => setAccentColor(key)}
-                className="flex h-10 w-10 items-center justify-center rounded-full border-2"
+                disabled={!canManage}
+                className="flex h-10 w-10 items-center justify-center rounded-full border-2 disabled:cursor-not-allowed disabled:opacity-60"
                 style={{ backgroundColor: preset.hex, borderColor: selected ? "#111827" : "transparent" }}
               >
                 {selected && <Check size={16} className="text-white" />}
@@ -123,7 +130,8 @@ export default function BrandingForm({ organization }: { organization: Org }) {
             type="button"
             title="Custom"
             onClick={() => setAccentColor("custom")}
-            className="flex h-10 w-10 items-center justify-center rounded-full border-2 bg-[conic-gradient(from_0deg,red,yellow,lime,cyan,blue,magenta,red)]"
+            disabled={!canManage}
+            className="flex h-10 w-10 items-center justify-center rounded-full border-2 bg-[conic-gradient(from_0deg,red,yellow,lime,cyan,blue,magenta,red)] disabled:cursor-not-allowed disabled:opacity-60"
             style={{ borderColor: accentColor === "custom" ? "#111827" : "transparent" }}
           >
             {accentColor === "custom" && <Check size={16} className="text-white drop-shadow" />}
@@ -133,12 +141,14 @@ export default function BrandingForm({ organization }: { organization: Org }) {
               <input
                 type="color"
                 value={isValidHex(customHex) ? customHex : "#4f46e5"}
+                disabled={!canManage}
                 onChange={(e) => setCustomHex(e.target.value)}
                 className="h-10 w-10 cursor-pointer rounded border border-gray-200 p-0.5"
               />
               <input
                 className="input w-28"
                 value={customHex}
+                disabled={!canManage}
                 onChange={(e) => setCustomHex(e.target.value)}
                 placeholder="#4f46e5"
               />
@@ -148,7 +158,7 @@ export default function BrandingForm({ organization }: { organization: Org }) {
       </div>
 
       <div className="border-t border-gray-100 pt-4">
-        <button onClick={onSave} disabled={saving} className="btn-primary">
+        <button onClick={onSave} disabled={saving || !canManage} className="btn-primary">
           {saving ? "Saving..." : "Save Changes"}
         </button>
       </div>

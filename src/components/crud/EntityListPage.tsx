@@ -1,7 +1,7 @@
 import { getEntity } from "@/lib/entities";
 import { listRows, loadRefOptions } from "@/lib/crud";
 import { requireActiveContext } from "@/lib/session";
-import { requireModuleAccess } from "@/lib/module-access";
+import { requireModuleAccess, canManageOrgSettings } from "@/lib/module-access";
 import { processDueJournalReversals } from "@/lib/journal-reversals";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/crud/PageHeader";
@@ -17,6 +17,12 @@ export default async function EntityListPage({ entityKey }: { entityKey: string 
   // src/lib/journal-reversals.ts) — this app has no cron runner, so a visit to the Manual
   // Journals list is one of the few places that check can happen.
   if (entity.kind === "journal") await processDueJournalReversals(ctx.orgId);
+  // See EntityFormPage.tsx for the New/Edit-page half of this — this is the List-page half:
+  // adminOnly entities (currencies/payment-terms/tax-rates/revenue-recognition-rules/roles)
+  // hide the "+ New" button and disable row Edit/Delete for anyone who isn't an owner/admin/
+  // Super Admin, but the list itself still renders normally (read-only access, not no access).
+  const readOnly = Boolean(entity.adminOnly) && !canManageOrgSettings(ctx);
+
   const [rows, refOptions] = await Promise.all([
     listRows(entityKey, ctx.orgId),
     loadRefOptions(entity, ctx.orgId, ctx.memberships),
@@ -26,7 +32,7 @@ export default async function EntityListPage({ entityKey }: { entityKey: string 
     <div>
       <PageHeader
         title={entity.labelPlural}
-        newHref={entity.customNewHref ?? (entity.restrictedCrud ? undefined : `/${entityKey}/new`)}
+        newHref={readOnly ? undefined : entity.customNewHref ?? (entity.restrictedCrud ? undefined : `/${entityKey}/new`)}
         newLabel={`New ${entity.label}`}
       />
       <div className="m-6 card">
@@ -39,6 +45,8 @@ export default async function EntityListPage({ entityKey }: { entityKey: string 
           emptyLabel={
             entity.restrictedCrud && !entity.customNewHref
               ? `No ${entity.labelPlural.toLowerCase()} yet.`
+              : readOnly
+              ? `No ${entity.labelPlural.toLowerCase()} yet.`
               : `No ${entity.labelPlural.toLowerCase()} yet. Click "New ${entity.label}" to add your first one.`
           }
           entityKind={entity.kind}
@@ -46,6 +54,7 @@ export default async function EntityListPage({ entityKey }: { entityKey: string 
           hasDetailView={entity.hasDetailView}
           restrictedCrud={entity.restrictedCrud}
           disableTitleLink={entity.disableTitleLink}
+          readOnly={readOnly}
         />
       </div>
     </div>

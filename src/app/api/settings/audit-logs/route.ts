@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { canManageOrgSettings } from "@/lib/module-access";
 import { AUDITED_MODULES } from "@/lib/audit-log";
 
 // GET /api/settings/audit-logs — paginated, filterable read of this organization's audit
@@ -20,7 +21,7 @@ import { AUDITED_MODULES } from "@/lib/audit-log";
 export async function GET(req: NextRequest) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Audit logs are visible to Owner and Admin only." }, { status: 403 });
   }
 

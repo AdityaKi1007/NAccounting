@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getEntity } from "@/lib/entities";
 import { getRow, updateRow, deleteRow, resolveOrgIdForWrite, validateRefFields } from "@/lib/crud";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
-import { moduleAccessErrorResponse } from "@/lib/module-access";
+import { moduleAccessErrorResponse, canManageOrgSettings } from "@/lib/module-access";
 import { pool } from "@/lib/db";
 import {
   syncPaymentJournal,
@@ -51,7 +51,7 @@ export async function PATCH(
   if (entity.restrictedCrud) {
     return NextResponse.json({ error: `${entity.labelPlural} can't be edited directly.` }, { status: 400 });
   }
-  if (entity.adminOnly && ctx.role !== "owner" && ctx.role !== "admin" && !ctx.isSuperAdmin) {
+  if (entity.adminOnly && !canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can manage this." }, { status: 403 });
   }
   const accessError = await moduleAccessErrorResponse(ctx, params.entity, "write");
@@ -177,7 +177,7 @@ export async function DELETE(
       { status: 400 }
     );
   }
-  if (entity.adminOnly && ctx.role !== "owner" && ctx.role !== "admin" && !ctx.isSuperAdmin) {
+  if (entity.adminOnly && !canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can manage this." }, { status: 403 });
   }
   const accessError = await moduleAccessErrorResponse(ctx, params.entity, "delete");

@@ -615,7 +615,7 @@ const methodColor: Record<string, string> = {
   PATCH: "bg-amber-100 text-amber-700",
 };
 
-export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
+export default function ApiKeysManager({ keys, canManage = true }: { keys: ApiKeyRow[]; canManage?: boolean }) {
   const router = useRouter();
   const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState("");
@@ -657,6 +657,7 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
   }
 
   async function onToggle(k: ApiKeyRow) {
+    if (!canManage) return;
     await fetch(`/api/settings/api-keys/${k.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -708,6 +709,11 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
 
   return (
     <div>
+      {!canManage && (
+        <div className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
+          Only owners, admins, and Super Admin can generate or revoke API keys. You can view the keys below.
+        </div>
+      )}
       <div className="mb-4 flex items-center justify-between border-b border-gray-200 pb-4">
         <div>
           <h1 className="text-lg font-semibold text-ink-800">API Keys</h1>
@@ -716,9 +722,11 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
             into NeoAccounting over REST.
           </p>
         </div>
-        <button onClick={openNew} className="btn-primary">
-          <Plus size={16} /> Generate API Key
-        </button>
+        {canManage && (
+          <button onClick={openNew} className="btn-primary">
+            <Plus size={16} /> Generate API Key
+          </button>
+        )}
       </div>
 
       {keys.length === 0 ? (
@@ -731,9 +739,11 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
             Generate a key and pass it as a bearer token to read and write invoices, receipts, customers, vendors,
             sales orders, credit memos and units from another application.
           </p>
-          <button onClick={openNew} className="btn-primary">
-            Generate API Key
-          </button>
+          {canManage && (
+            <button onClick={openNew} className="btn-primary">
+              Generate API Key
+            </button>
+          )}
         </div>
       ) : (
         <div className="card overflow-x-auto">
@@ -758,7 +768,8 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
                   <td className="px-4 py-2.5">
                     <button
                       onClick={() => onToggle(k)}
-                      className={`relative h-5 w-9 rounded-full transition-colors ${k.is_active ? "bg-brand-600" : "bg-gray-300"}`}
+                      disabled={!canManage}
+                      className={`relative h-5 w-9 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${k.is_active ? "bg-brand-600" : "bg-gray-300"}`}
                       title={k.is_active ? "On" : "Off"}
                     >
                       <span
@@ -770,7 +781,7 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
                   </td>
                   <td className="px-4 py-2.5 text-right">
                     <div className="flex items-center justify-end gap-1">
-                      {confirmId === k.id ? (
+                      {!canManage ? null : confirmId === k.id ? (
                         <button
                           onClick={() => onDelete(k.id)}
                           disabled={deletingId === k.id}

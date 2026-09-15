@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool, queryOne } from "@/lib/db";
 import { getApiOrgContext, unauthorized } from "@/lib/api-context";
+import { canManageOrgSettings } from "@/lib/module-access";
 
 // Custom roles (role_permissions) were retired 2026-09-13, then reintroduced 2026-09-14 for
 // the Access Matrix feature (see that addendum doc) — this endpoint is back to assigning or
@@ -15,7 +16,7 @@ export async function PATCH(
 ) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin" && !ctx.isSuperAdmin) {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can change a member's role." }, { status: 403 });
   }
 
@@ -55,7 +56,7 @@ export async function DELETE(
 ) {
   const ctx = await getApiOrgContext();
   if (!ctx) return unauthorized();
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgSettings(ctx)) {
     return NextResponse.json({ error: "Only owners and admins can remove users." }, { status: 403 });
   }
 

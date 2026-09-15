@@ -12,6 +12,20 @@ export interface ModuleAccessCtx {
   roleId?: string | null;
 }
 
+/**
+ * Shared gate for org Settings screens (Company/Branding/Taxes/Users & Roles/Currencies/
+ * Payment Terms/Reminders/API Keys/Webhooks/etc.) — NOT the same thing as evaluateModuleAccess
+ * above, which is the per-org custom-role module permission matrix for top-level nav modules.
+ * Settings edit access is deliberately simpler and org-independent: only the org's own
+ * owner/admin members, or a platform Super Admin (users.is_super_admin, works across every org
+ * regardless of their membership role in it), may create/edit/delete a setting. Every other
+ * role (staff, or any custom role) gets read-only. Added 2026-09-15 ("setting editable access
+ * should be with super admin and company admin only, other roles should have read only access").
+ */
+export function canManageOrgSettings(ctx: { role: string; isSuperAdmin: boolean }): boolean {
+  return ctx.role === "owner" || ctx.role === "admin" || ctx.isSuperAdmin;
+}
+
 interface AccessResult {
   allowed: boolean;
   reason?: "module_disabled" | "role_restricted";
