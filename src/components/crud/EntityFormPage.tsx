@@ -10,9 +10,18 @@ import EntityForm from "@/components/crud/EntityForm";
 export default async function EntityFormPage({
   entityKey,
   id,
+  presetValues,
+  redirectTo,
 }: {
   entityKey: string;
   id?: string;
+  /** Values to pre-fill on a NEW record only (e.g. `{ project_id }` when arriving from a
+   *  parent's "+ Add" button — see /buildings/new/page.tsx and the Buildings card on
+   *  /projects/[id]). Ignored when editing an existing row (its own saved values win). */
+  presetValues?: Record<string, string>;
+  /** Where to send the user after a successful save. Defaults to `/${entityKey}` — a parent
+   *  "+ Add" button overrides this to return to the parent record instead. */
+  redirectTo?: string;
 }) {
   const entity = getEntity(entityKey);
   if (!entity) notFound();
@@ -51,11 +60,12 @@ export default async function EntityFormPage({
   if (id && !row) notFound();
 
   // New record: default any real organization_id field (currently only Projects — see
-  // entities.ts) to the org the user is currently in, same as every other field's `default`.
+  // entities.ts) to the org the user is currently in, same as every other field's `default`,
+  // plus whatever the caller preset (e.g. project_id when arriving from a parent's "+ Add").
   const initialData = row
     ? (row as Record<string, unknown>)
-    : entity.fields.some((f) => f.name === "organization_id")
-    ? { organization_id: ctx.orgId }
+    : entity.fields.some((f) => f.name === "organization_id") || presetValues
+    ? { ...(entity.fields.some((f) => f.name === "organization_id") ? { organization_id: ctx.orgId } : null), ...presetValues }
     : null;
 
   return (
@@ -71,7 +81,7 @@ export default async function EntityFormPage({
           refOptions={refOptions}
           initialData={initialData as Record<string, unknown> | null}
           recordId={id}
-          redirectTo={`/${entityKey}`}
+          redirectTo={redirectTo ?? `/${entityKey}`}
           allowAttachments={entity.attachments}
         />
       </div>

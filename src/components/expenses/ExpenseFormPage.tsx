@@ -3,7 +3,7 @@ import { query, queryOne } from "@/lib/db";
 import { requireActiveContext } from "@/lib/session";
 import { requireModuleAccess } from "@/lib/module-access";
 import PageHeader from "@/components/crud/PageHeader";
-import ExpenseForm, { type ExpenseOption } from "@/components/expenses/ExpenseForm";
+import ExpenseForm, { type ExpenseOption, type BankAccountOption } from "@/components/expenses/ExpenseForm";
 
 const EMIRATES = ["Abu Dhabi", "Dubai", "Sharjah", "Ajman", "Umm Al Quwain", "Ras al-Khaimah", "Fujairah"];
 
@@ -22,8 +22,12 @@ export default async function ExpenseFormPage({ id }: { id?: string }) {
        ORDER BY code NULLS LAST, name ASC`,
       [ctx.orgId]
     ),
-    query<{ id: string; account_name: string }>(
-      `SELECT id, account_name FROM bank_accounts WHERE organization_id = $1 ORDER BY account_name ASC`,
+    query<{ id: string; account_name: string; gl_account_type: string | null; gl_account_code: string | null }>(
+      `SELECT ba.id, ba.account_name, a.type AS gl_account_type, a.code AS gl_account_code
+       FROM bank_accounts ba
+       LEFT JOIN accounts a ON a.id = ba.gl_account_id
+       WHERE ba.organization_id = $1
+       ORDER BY ba.account_name ASC`,
       [ctx.orgId]
     ),
     query<{ id: string; display_name: string }>(
@@ -48,7 +52,15 @@ export default async function ExpenseFormPage({ id }: { id?: string }) {
     value: r.id,
     label: r.code ? `${r.code} - ${r.name}` : r.name,
   }));
-  const bankOptions: ExpenseOption[] = bankRows.map((r) => ({ value: r.id, label: r.account_name }));
+  // 2026-09-15: "make same selection for paid through on expense creation page same as on
+  // record payments page" — carries the linked Chart of Accounts type so ExpenseForm.tsx can
+  // group these the same way RecordPaymentForm.tsx/RecordPaymentMadeForm.tsx already group
+  // their own "Deposit To"/"Paid Through" pickers (see depositToGroupLabel in lib/accounts.ts).
+  const bankOptions: BankAccountOption[] = bankRows.map((r) => ({
+    value: r.id,
+    label: r.gl_account_code ? `[ ${r.gl_account_code} ] ${r.account_name}` : r.account_name,
+    glAccountType: r.gl_account_type,
+  }));
   const vendorOptions: ExpenseOption[] = vendorRows.map((r) => ({ value: r.id, label: r.display_name }));
   const customerOptions: ExpenseOption[] = customerRows.map((r) => ({ value: r.id, label: r.display_name }));
   const taxRateOptions = taxRateRows.map((r) => ({ value: r.id, label: r.name, rate: Number(r.rate) }));

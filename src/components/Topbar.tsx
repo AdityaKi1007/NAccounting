@@ -77,14 +77,16 @@ export default function Topbar({ orgName }: { orgName: string }) {
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
               <h3 className="text-sm font-semibold text-ink-800">Organizations</h3>
               <div className="flex items-center gap-3">
-                <Link
-                  href="/organizations"
-                  onClick={() => setOrgMenuOpen(false)}
-                  className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline"
-                >
-                  <Settings2 size={13} />
-                  Manage
-                </Link>
+                {session?.isSuperAdmin && (
+                  <Link
+                    href="/organizations"
+                    onClick={() => setOrgMenuOpen(false)}
+                    className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline"
+                  >
+                    <Settings2 size={13} />
+                    Manage
+                  </Link>
+                )}
                 <button
                   type="button"
                   onClick={() => setOrgMenuOpen(false)}

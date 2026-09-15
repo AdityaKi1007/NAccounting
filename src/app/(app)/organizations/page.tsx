@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { requireActiveContext } from "@/lib/session";
 import { query } from "@/lib/db";
 import OrganizationsManager from "@/components/organizations/OrganizationsManager";
@@ -13,6 +14,13 @@ interface OrgRow {
 
 export default async function OrganizationsPage() {
   const ctx = await requireActiveContext();
+
+  // 2026-09-15: "keep manage option only for super admin" — the Topbar's org-switcher
+  // "Manage" link (Topbar.tsx) is already hidden from everyone else; this is the matching
+  // server-side check so a direct/bookmarked visit to /organizations can't bypass that, same
+  // notFound() pattern the platform-wide Super Admin page itself uses (requireSuperAdminPage
+  // in src/lib/super-admin.ts) rather than a bespoke redirect here.
+  if (!ctx.isSuperAdmin) notFound();
 
   // Oldest membership first — this is also how auth.ts picks the org a fresh login lands
   // on when no activeOrgId is set yet, so it doubles as this list's "default" org.

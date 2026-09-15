@@ -5,10 +5,23 @@ import { useRouter } from "next/navigation";
 import AttachmentsField from "@/components/attachments/AttachmentsField";
 import { uploadPendingAttachments } from "@/lib/attachments-client";
 import Combobox from "@/components/ui/Combobox";
+import GroupedCombobox from "@/components/ui/GroupedCombobox";
+import { depositToGroupLabel } from "@/lib/accounts";
 
 export interface ExpenseOption {
   value: string;
   label: string;
+}
+
+/** "Paid Through" option carrying the linked Chart of Accounts type (bank_accounts.gl_account_id
+ * -> accounts.type) so it can be grouped the same way RecordPaymentForm.tsx/
+ * RecordPaymentMadeForm.tsx already group their own "Deposit To"/"Paid Through" pickers — see
+ * depositToGroupLabel in lib/accounts.ts. 2026-09-15: "make same selection for paid through on
+ * expense creation page same as on record payments page". */
+export interface BankAccountOption {
+  value: string;
+  label: string;
+  glAccountType: string | null;
 }
 
 interface TaxRateOption extends ExpenseOption {
@@ -50,7 +63,7 @@ interface Props {
   currency: string;
   defaultPlaceOfSupply: string;
   accountOptions: ExpenseOption[];
-  bankOptions: ExpenseOption[];
+  bankOptions: BankAccountOption[];
   vendorOptions: ExpenseOption[];
   customerOptions: ExpenseOption[];
   taxRateOptions: TaxRateOption[];
@@ -115,6 +128,13 @@ export default function ExpenseForm({
   const taxComboOptions = useMemo(
     () => [{ value: "", label: "No Tax" }, ...taxRateOptions.map((o) => ({ value: o.value, label: `${o.label} (${o.rate}%)` }))],
     [taxRateOptions]
+  );
+
+  // Same reshape RecordPaymentForm.tsx/RecordPaymentMadeForm.tsx use for their own grouped
+  // "Deposit To"/"Paid Through" pickers — see BankAccountOption above.
+  const groupedBankOptions = useMemo(
+    () => bankOptions.map((a) => ({ value: a.value, label: a.label, group: depositToGroupLabel(a.glAccountType) })),
+    [bankOptions]
   );
 
   function resetForm() {
@@ -236,14 +256,15 @@ export default function ExpenseForm({
           <label className="label pt-1.5 text-red-500">
             Paid Through<span> *</span>
           </label>
-          <select className="input max-w-xs" value={paidThroughId} onChange={(e) => setPaidThroughId(e.target.value)}>
-            <option value="">Select an account</option>
-            {bankOptions.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          <div className="max-w-xs">
+            <GroupedCombobox
+              options={groupedBankOptions}
+              value={paidThroughId}
+              onChange={setPaidThroughId}
+              placeholder="Select an account"
+              searchPlaceholder="Search"
+            />
+          </div>
 
           <label className="label pt-1.5">Vendor</label>
           <select className="input max-w-xs" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, Pencil, Building2, Landmark } from "lucide-react";
+import { ChevronLeft, Pencil, Plus, Building2, Landmark } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
 import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
@@ -184,13 +184,19 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
         </div>
 
         <div className="card">
-          <div className="border-b border-gray-100 px-6 py-4">
+          <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
             <h2 className="text-sm font-semibold text-ink-800">Buildings ({buildings.length})</h2>
+            <Link href={`/buildings/new?project_id=${project.id}`} className="btn-secondary">
+              <Plus size={14} /> Add Building
+            </Link>
           </div>
           {buildings.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
               <Building2 size={28} className="text-gray-300" />
               <p className="text-sm text-gray-500">No buildings under this project yet.</p>
+              <Link href={`/buildings/new?project_id=${project.id}`} className="btn-secondary mt-2">
+                <Plus size={14} /> Add Building
+              </Link>
             </div>
           ) : (
             <div className="overflow-x-auto">
