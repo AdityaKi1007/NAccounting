@@ -21,6 +21,7 @@ import EmailSettingsForm from "@/components/settings/EmailSettingsForm";
 import S3StorageSettingsForm from "@/components/settings/S3StorageSettingsForm";
 import GeneralSettingsInfo from "@/components/settings/GeneralSettingsInfo";
 import AuditLogViewer from "@/components/settings/AuditLogViewer";
+import DebugLogsViewer from "@/components/settings/DebugLogsViewer";
 import ApiUsageDetails from "@/components/settings/ApiUsageDetails";
 import RevenueRecognitionSettings from "@/components/settings/RevenueRecognitionSettings";
 import AccessMatrixManager from "@/components/settings/AccessMatrixManager";
@@ -136,6 +137,21 @@ export default async function SettingsItemPage({
   // just what keeps the page itself from showing the log viewer to anyone else.
   const canViewAuditLogs = ctx.role === "owner" || ctx.role === "admin";
 
+  // Debug Logs — Owner/Admin/Super Admin, per the request ("delete option ... by admin and
+  // super admin"); owner is included for the same reason canManageAccessMatrix includes it
+  // (owner is a strict superset of admin everywhere else in this app, and every
+  // /api/settings/debug-logs* route enforces this same check independently regardless of what
+  // this page shows).
+  const canManageDebugLogs = ctx.role === "owner" || ctx.role === "admin" || ctx.isSuperAdmin;
+
+  const debugLogsEnabled =
+    item.view === "debug-logs" && canManageDebugLogs
+      ? Boolean(
+          (await queryOne<{ debug_logs_enabled: boolean }>(`SELECT debug_logs_enabled FROM organizations WHERE id = $1`, [ctx.orgId]))
+            ?.debug_logs_enabled
+        )
+      : false;
+
   // Access Matrix (custom roles + the 10-level read/write/delete grid): Owner/Admin/Super
   // Admin only, per the request this feature was built from ("accessed by Admin or Super
   // Admin"). API-side, this is independently enforced by the "roles" entity's adminOnly flag
@@ -220,7 +236,7 @@ export default async function SettingsItemPage({
           <ChevronRight size={12} />
           <span className="text-ink-700">{item.label}</span>
         </div>
-        {item.view !== "api-keys" && item.view !== "audit-logs" && (
+        {item.view !== "api-keys" && item.view !== "audit-logs" && item.view !== "debug-logs" && (
           <>
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-semibold text-ink-800">
@@ -596,6 +612,20 @@ export default async function SettingsItemPage({
               <p className="max-w-sm text-sm text-gray-500">
                 Audit logs are visible only to your organization&apos;s Owner and Admin. Ask one of them if you
                 need to see a change here.
+              </p>
+            </div>
+          ))}
+
+        {item.view === "debug-logs" &&
+          (canManageDebugLogs ? (
+            <DebugLogsViewer initialEnabled={debugLogsEnabled} />
+          ) : (
+            <div className="card flex flex-col items-center justify-center gap-3 py-24 text-center">
+              <ShieldAlert size={40} className="text-gray-300" />
+              <h2 className="text-base font-semibold text-ink-800">Owner, Admin and Super Admin Only</h2>
+              <p className="max-w-sm text-sm text-gray-500">
+                Debug Logs are visible only to your organization&apos;s Owner, Admin, and Super Admin. Ask one
+                of them if you need to see or clear a captured exception here.
               </p>
             </div>
           ))}

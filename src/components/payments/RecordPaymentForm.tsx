@@ -16,6 +16,19 @@ interface UnpaidInvoice {
   balanceDue: number;
 }
 
+/** A bank account option carrying its own optional Project tag (bank_accounts.project_id — see
+ * BankAccountModal.tsx's own Project select) so "Deposit To" can be filtered by the Project
+ * picked above it, plus the `type` of the Chart of Accounts entry it's linked to
+ * (bank_accounts.gl_account_id -> accounts.type) so it can also be narrowed to only
+ * Cash-linked accounts when Payment Mode is Cash. Richer than a plain ComboboxOption for
+ * these reasons. */
+interface BankAccountOption {
+  value: string;
+  label: string;
+  projectId: string | null;
+  glAccountType: string | null;
+}
+
 const PAYMENT_MODES = [
   { value: "cash", label: "Cash" },
   { value: "bank_transfer", label: "Bank Transfer" },
@@ -52,7 +65,7 @@ export default function RecordPaymentForm({
   numberPreview,
 }: {
   customerOptions: ComboboxOption[];
-  bankAccountOptions: ComboboxOption[];
+  bankAccountOptions: BankAccountOption[];
   /** Optional Property Master Project/Unit tags — see payments_received.project_id/unit_id. */
   projectOptions?: ComboboxOption[];
   unitOptions?: ComboboxOption[];
@@ -136,6 +149,31 @@ export default function RecordPaymentForm({
       return true;
     });
   }, [invoices, dateFrom, dateTo]);
+
+  // "Deposit To" is strictly scoped by the selected Project: with a Project selected, only
+  // accounts tagged to that exact project show; with no Project selected, only untagged
+  // (org-wide) accounts show — accounts tagged to any other project are always hidden either
+  // way (see bank_accounts.project_id / BankAccountModal.tsx's own Project select). On top of
+  // that, Payment Mode = Cash narrows further to only accounts linked to a Cash-type Chart of
+  // Accounts entry (bank_accounts.gl_account_id -> accounts.type = 'cash') — see
+  // BankAccountModal.tsx's "Link to Chart of Accounts" field for how an account gets linked.
+  const filteredBankAccountOptions = useMemo(() => {
+    return bankAccountOptions.filter((a) => {
+      const projectMatches = projectId ? a.projectId === projectId : !a.projectId;
+      if (!projectMatches) return false;
+      if (paymentMode === "cash" && a.glAccountType !== "cash") return false;
+      return true;
+    });
+  }, [bankAccountOptions, projectId, paymentMode]);
+
+  // If the previously-selected Deposit To account gets filtered out by a Project change,
+  // clear it rather than silently keep submitting a now-hidden value.
+  useEffect(() => {
+    if (bankAccountId && !filteredBankAccountOptions.some((a) => a.value === bankAccountId)) {
+      setBankAccountId("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredBankAccountOptions]);
 
   const amountReceivedNum = parseFloat(amountReceived) || 0;
   const totalApplied = Object.values(allocations).reduce((sum, v) => sum + (v || 0), 0);
@@ -265,6 +303,16 @@ export default function RecordPaymentForm({
             placeholder={numberPreview ? `Auto: ${numberPreview}` : "Auto-generated if left blank"}
           />
 
+          <label className="label pt-2">Project</label>
+          <select className="input max-w-sm" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            <option value="">Select Project</option>
+            {projectOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
           <label className="label pt-2">Payment Mode</label>
           <select className="input max-w-sm" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
             {PAYMENT_MODES.map((m) => (
@@ -283,7 +331,7 @@ export default function RecordPaymentForm({
             onChange={(e) => setBankAccountId(e.target.value)}
           >
             <option value="">Select an account</option>
-            {bankAccountOptions.map((a) => (
+            {filteredBankAccountOptions.map((a) => (
               <option key={a.value} value={a.value}>
                 {a.label}
               </option>
@@ -297,16 +345,6 @@ export default function RecordPaymentForm({
             value={referenceNumber}
             onChange={(e) => setReferenceNumber(e.target.value)}
           />
-
-          <label className="label pt-2">Project</label>
-          <select className="input max-w-sm" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            <option value="">Select Project</option>
-            {projectOptions.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
 
           <label className="label pt-2">Unit</label>
           <select className="input max-w-sm" value={unitId} onChange={(e) => setUnitId(e.target.value)}>

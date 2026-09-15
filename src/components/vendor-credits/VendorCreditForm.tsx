@@ -258,7 +258,12 @@ export default function VendorCreditForm({
             </div>
           </div>
           <div className="overflow-x-auto rounded-md border border-gray-200">
-            <table className="w-full text-left text-sm">
+            {/* table-fixed — same fix as BillForm.tsx's identical item table (this table is a
+               near-exact copy of it): without it, table-layout: auto lets w-full squish the
+               Account/Qty/Customer Details columns instead of triggering the overflow-x-auto
+               scroll above. See known-issues-local-env-addendum-line-items-table-layout-
+               2026-09-14.md and its 2026-09-15 Bills/Vendor Credits follow-up. */}
+            <table className="w-full table-fixed text-left text-sm">
               <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
                 <tr>
                   <th className="w-56 px-3 py-2">Item Details</th>

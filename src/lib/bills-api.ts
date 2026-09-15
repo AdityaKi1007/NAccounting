@@ -363,6 +363,77 @@ export async function updateBill(
   }
 }
 
+// Voids a bill — a dedicated action rather than routing through updateBill above, because
+// updateBill always requires (and unconditionally deletes/re-inserts) the full line list; a
+// pure status change has no business touching bill_items at all. Guarded to only ever void a
+// bill nothing has been paid against yet (balance_due still equals total): once even one
+// payment has been applied, voiding would leave that Payment Made allocated against a
+// cancelled bill with no way to reconcile it back, so the user has to unapply/delete the
+// payment first, same "don't leave the books in an inconsistent state" philosophy as every
+// other guard in this codebase (e.g. purchase-orders' cancel-items route blocking once a PO's
+// already been converted to a bill). Clears balance_due to 0 (nothing is owed on a voided
+// bill) but deliberately leaves subtotal/tax_total/total untouched — the historical record of
+// what the bill said, same as a voided Purchase Order keeps its own totals visible.
+export async function voidBill(orgId: string, id: string, actor: AuditActor = {}): Promise<BillActionResult> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const currentResult = await client.query(`SELECT * FROM bills WHERE organization_id = $1 AND id = $2 FOR UPDATE`, [
+      orgId,
+      id,
+    ]);
+    const current = currentResult.rows[0];
+    if (!current) {
+      await client.query("ROLLBACK");
+      return { ok: false, error: "Not found", status: 404 };
+    }
+    if (current.status === "void") {
+      await client.query("ROLLBACK");
+      return { ok: false, error: "This bill is already void.", status: 400 };
+    }
+    if (round2(Number(current.balance_due)) < round2(Number(current.total))) {
+      await client.query("ROLLBACK");
+      return {
+        ok: false,
+        error: "This bill has payments applied to it — remove them before voiding.",
+        status: 400,
+      };
+    }
+
+    await client.query(`UPDATE bills SET status = 'void', balance_due = 0 WHERE organization_id = $1 AND id = $2`, [
+      orgId,
+      id,
+    ]);
+    await syncBillJournal(client, orgId, id);
+
+    const auditNewRow = (await client.query(`SELECT * FROM bills WHERE id = $1`, [id])).rows[0] as
+      | Record<string, unknown>
+      | undefined;
+
+    await client.query("COMMIT");
+
+    await recordAuditLog({
+      orgId,
+      actor,
+      action: "update",
+      module: "bills",
+      entityId: id,
+      entityLabel: auditNewRow ? String(auditNewRow.bill_number ?? "") : null,
+      oldData: current as Record<string, unknown>,
+      newData: auditNewRow ?? null,
+    });
+
+    return { ok: true, id };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error(err);
+    return { ok: false, error: "Could not void this bill.", status: 500 };
+  } finally {
+    client.release();
+  }
+}
+
 export async function getBillForEdit(orgId: string, id: string) {
   const header = await queryOne<Record<string, unknown>>(`SELECT * FROM bills WHERE id = $1 AND organization_id = $2`, [
     id,

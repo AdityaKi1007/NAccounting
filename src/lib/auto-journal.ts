@@ -934,7 +934,9 @@ export async function syncBillJournal(client: PoolClient, orgId: string, billId:
       lines: [],
     });
 
-  if (b.status === "draft") return bail();
+  // "void" (see voidBill in bills-api.ts) reverses whatever this bill had posted, same as
+  // "draft" never having posted anything in the first place — both are a full bail.
+  if (b.status === "draft" || b.status === "void") return bail();
 
   const taxTotal = round2(Number(b.tax_total));
   const total = round2(Number(b.total));

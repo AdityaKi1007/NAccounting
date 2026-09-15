@@ -1,12 +1,9 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, Pencil } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
 import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
-import { formatCurrency, formatDate } from "@/lib/format";
-import AttachmentsField from "@/components/attachments/AttachmentsField";
-import JournalPanel, { type JournalLineData } from "@/components/accounting/JournalPanel";
+import { type JournalLineData } from "@/components/accounting/JournalPanel";
+import BillDetailView from "@/components/bills/BillDetailView";
 
 interface BillRow {
   id: string;
@@ -62,41 +59,17 @@ interface PaymentRow {
   amount: string;
 }
 
-const STATUS_STYLES: Record<string, string> = {
-  paid: "bg-emerald-100 text-emerald-700",
-  partially_paid: "bg-amber-100 text-amber-700",
-  open: "bg-blue-100 text-blue-700",
-  overdue: "bg-red-100 text-red-700",
-  draft: "bg-gray-100 text-gray-500",
-};
-const STATUS_LABELS: Record<string, string> = {
-  paid: "Paid",
-  partially_paid: "Partially Paid",
-  open: "Open",
-  overdue: "Overdue",
-  draft: "Draft",
-};
-const PAYMENT_TERM_LABELS: Record<string, string> = {
-  due_on_receipt: "Due on Receipt",
-  net_15: "Net 15",
-  net_30: "Net 30",
-  net_45: "Net 45",
-  net_60: "Net 60",
-};
-
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div>
-      <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{label}</p>
-      <p className="mt-0.5 text-sm text-ink-700">{value || "-"}</p>
-    </div>
-  );
+interface PurchaseOrderRow {
+  id: string;
+  po_number: string;
+  order_date: string;
+  status: string;
 }
 
 /** Read-only detail view at /bills/[id] — reached by clicking the Bill # from the list, or
- * right after Save (see BillForm.tsx). Same "click the account, land on its own ledger"
- * pattern the Expense detail view established: each item row's Account is a link to
- * /chart-of-accounts/[id], which already lists every journal line posted to it. */
+ * right after Save (see BillForm.tsx). Thin server wrapper: fetches everything, then hands off
+ * to BillDetailView.tsx (a client component) for rendering + the interactive actions (Record
+ * Payment, Void) that a pure server component can't own. */
 export default async function BillDetailPage({ params }: { params: { id: string } }) {
   const ctx = await requireActiveContext();
   await requireModuleAccess(ctx, "bills", "view");
@@ -110,7 +83,7 @@ export default async function BillDetailPage({ params }: { params: { id: string 
   );
   if (!bill) notFound();
 
-  const [vendor, apAccount, org, lines, payments, journalLines, project, unit] = await Promise.all([
+  const [vendor, apAccount, org, lines, payments, journalLines, project, unit, purchaseOrders] = await Promise.all([
     bill.vendor_id
       ? queryOne<{ id: string; display_name: string }>(`SELECT id, display_name FROM vendors WHERE id = $1 AND organization_id = $2`, [
           bill.vendor_id,
@@ -160,6 +133,15 @@ export default async function BillDetailPage({ params }: { params: { id: string 
     bill.unit_id
       ? queryOne<UnitRow>(`SELECT id, name FROM inventory WHERE id = $1 AND organization_id = $2`, [bill.unit_id, ctx.orgId])
       : Promise.resolve(null),
+    // Purchase Order(s) this bill was converted from — see purchase_orders.converted_bill_id
+    // and src/app/api/purchase-orders/[id]/convert-to-bill/route.ts. Queried as a list for
+    // robustness even though in practice it's at most one today.
+    query<PurchaseOrderRow>(
+      `SELECT id, po_number, order_date, status FROM purchase_orders
+       WHERE converted_bill_id = $1 AND organization_id = $2
+       ORDER BY order_date ASC`,
+      [bill.id, ctx.orgId]
+    ),
   ]);
 
   const currency = org?.currency ?? "AED";
@@ -171,187 +153,55 @@ export default async function BillDetailPage({ params }: { params: { id: string 
   }));
 
   return (
-    <div>
-      <div className="border-b border-gray-200 bg-white px-6 py-4">
-        <Link href="/bills" className="mb-2 inline-flex items-center gap-1 text-xs text-gray-400 hover:text-brand-600">
-          <ChevronLeft size={12} /> All Bills
-        </Link>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-semibold text-ink-800">{bill.bill_number}</h1>
-            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[bill.status] ?? "bg-gray-100 text-gray-500"}`}>
-              {STATUS_LABELS[bill.status] ?? bill.status}
-            </span>
-          </div>
-          <Link href={`/bills/${bill.id}/edit`} className="btn-secondary">
-            <Pencil size={14} /> Edit
-          </Link>
-        </div>
-        <p className="mt-0.5 text-sm text-gray-500">
-          {formatDate(bill.bill_date)} {vendor && <>&middot; {vendor.display_name}</>}
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 p-6 lg:grid-cols-[1fr_320px]">
-        <div className="space-y-6">
-          <div className="card space-y-5 p-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Bill Amount</p>
-                <p className="mt-1 text-2xl font-semibold text-red-600">{formatCurrency(Number(bill.total), currency)}</p>
-                <p className="mt-0.5 text-xs text-gray-500">Balance Due: {formatCurrency(Number(bill.balance_due), currency)}</p>
-              </div>
-              <div className="text-right">
-                {vendor && (
-                  <Link href={`/vendors/${vendor.id}`} className="text-sm font-medium text-brand-600 hover:underline">
-                    {vendor.display_name}
-                  </Link>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 border-t border-gray-100 pt-4 sm:grid-cols-4">
-              <Field label="Order Number" value={bill.order_number} />
-              <Field label="Permit#" value={bill.permit_number} />
-              <Field label="Due Date" value={bill.due_date ? formatDate(bill.due_date) : null} />
-              <Field label="Payment Terms" value={PAYMENT_TERM_LABELS[bill.payment_terms] ?? bill.payment_terms} />
-              <Field label="Subject" value={bill.subject} />
-              <Field label="Accounts Payable" value={apAccount?.name ?? "Default"} />
-            </div>
-
-            {(project || unit) && (
-              <div className="flex flex-wrap gap-6 border-t border-gray-100 pt-4 text-sm">
-                {project && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Project</p>
-                    <Link href={`/projects/${project.id}`} className="text-brand-600 hover:underline">
-                      {project.name}
-                    </Link>
-                  </div>
-                )}
-                {unit && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Unit</p>
-                    <Link href={`/inventory/${unit.id}`} className="text-brand-600 hover:underline">
-                      {unit.name}
-                    </Link>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="border-t border-gray-100 pt-4">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Item Table</p>
-              <div className="overflow-x-auto rounded-md border border-gray-100">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-50 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                    <tr>
-                      <th className="px-3 py-2">Item Details</th>
-                      <th className="px-3 py-2">Account</th>
-                      <th className="px-3 py-2 text-right">Qty</th>
-                      <th className="px-3 py-2 text-right">Rate</th>
-                      <th className="px-3 py-2">Tax</th>
-                      <th className="px-3 py-2">Customer</th>
-                      <th className="px-3 py-2 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {lines.map((l) => (
-                      <tr key={l.id}>
-                        <td className="px-3 py-2 text-ink-700">{l.description}</td>
-                        <td className="px-3 py-2">
-                          {l.account_id ? (
-                            <Link href={`/chart-of-accounts/${l.account_id}`} className="text-brand-600 hover:underline">
-                              {l.account_name}
-                            </Link>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right text-ink-700">{Number(l.quantity)}</td>
-                        <td className="px-3 py-2 text-right text-ink-700">{formatCurrency(Number(l.rate), currency)}</td>
-                        <td className="px-3 py-2 text-ink-700">{l.tax_name ? `${l.tax_name} (${Number(l.tax_rate)}%)` : "-"}</td>
-                        <td className="px-3 py-2">
-                          {l.customer_id ? (
-                            <Link href={`/customers/${l.customer_id}`} className="text-brand-600 hover:underline">
-                              {l.customer_name}
-                            </Link>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right text-ink-800">{formatCurrency(Number(l.amount), currency)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="mt-3 flex justify-end">
-                <div className="w-64 space-y-1.5 text-sm">
-                  <div className="flex items-center justify-between text-ink-700">
-                    <span>Sub Total</span>
-                    <span>{formatCurrency(Number(bill.subtotal), currency)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-ink-700">
-                    <span>Tax</span>
-                    <span>{formatCurrency(Number(bill.tax_total), currency)}</span>
-                  </div>
-                  <div className="flex items-center justify-between border-t border-gray-100 pt-1.5 font-semibold text-ink-800">
-                    <span>Total</span>
-                    <span>{formatCurrency(Number(bill.total), currency)}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {bill.notes && (
-              <div className="border-t border-gray-100 pt-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Notes</p>
-                <p className="mt-1 whitespace-pre-wrap text-sm text-gray-600">{bill.notes}</p>
-              </div>
-            )}
-          </div>
-
-          <JournalPanel title={`Bill - ${bill.bill_number}`} lines={journal} currency={currency} defaultOpen />
-
-          <div className="card space-y-2 p-5">
-            <h2 className="text-sm font-semibold text-ink-800">Payments Made</h2>
-            {payments.length === 0 ? (
-              <p className="text-sm text-gray-400">No payments have been recorded against this bill yet.</p>
-            ) : (
-              <table className="w-full text-left text-sm">
-                <thead className="border-y border-gray-100 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  <tr>
-                    <th className="px-3 py-2">Date</th>
-                    <th className="px-3 py-2">Payment #</th>
-                    <th className="px-3 py-2 text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {payments.map((p) => (
-                    <tr key={p.id}>
-                      <td className="px-3 py-2 text-ink-700">{formatDate(p.payment_date)}</td>
-                      <td className="px-3 py-2">
-                        <Link href={`/payments-made/${p.id}`} className="text-brand-600 hover:underline">
-                          {p.payment_number}
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2 text-right text-ink-800">{formatCurrency(Number(p.amount), currency)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="card space-y-2 p-5">
-            <h2 className="text-sm font-semibold text-ink-800">Attachments</h2>
-            <AttachmentsField entityType="bills" entityId={bill.id} label="" />
-          </div>
-        </div>
-      </div>
-    </div>
+    <BillDetailView
+      bill={{
+        id: bill.id,
+        billNumber: bill.bill_number,
+        vendorId: bill.vendor_id,
+        billDate: bill.bill_date,
+        dueDate: bill.due_date,
+        orderNumber: bill.order_number,
+        permitNumber: bill.permit_number,
+        subject: bill.subject,
+        paymentTerms: bill.payment_terms,
+        status: bill.status,
+        subtotal: Number(bill.subtotal),
+        taxTotal: Number(bill.tax_total),
+        total: Number(bill.total),
+        balanceDue: Number(bill.balance_due),
+        notes: bill.notes,
+      }}
+      vendor={vendor ? { id: vendor.id, displayName: vendor.display_name } : null}
+      apAccountName={apAccount?.name ?? null}
+      currency={currency}
+      lines={lines.map((l) => ({
+        id: l.id,
+        description: l.description,
+        quantity: Number(l.quantity),
+        rate: Number(l.rate),
+        amount: Number(l.amount),
+        accountId: l.account_id,
+        accountName: l.account_name,
+        taxName: l.tax_name,
+        taxRate: l.tax_rate ? Number(l.tax_rate) : null,
+        customerId: l.customer_id,
+        customerName: l.customer_name,
+      }))}
+      payments={payments.map((p) => ({
+        id: p.id,
+        paymentNumber: p.payment_number,
+        paymentDate: p.payment_date,
+        amount: Number(p.amount),
+      }))}
+      journalLines={journal}
+      project={project ? { id: project.id, name: project.name } : null}
+      unit={unit ? { id: unit.id, name: unit.name } : null}
+      purchaseOrders={purchaseOrders.map((po) => ({
+        id: po.id,
+        poNumber: po.po_number,
+        orderDate: po.order_date,
+        status: po.status,
+      }))}
+    />
   );
 }

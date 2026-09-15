@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, Pencil, Building2 } from "lucide-react";
+import { ChevronLeft, Pencil, Building2, Landmark } from "lucide-react";
 import { requireActiveContext } from "@/lib/session";
 import { requireModuleAccess } from "@/lib/module-access";
 import { query, queryOne } from "@/lib/db";
@@ -41,6 +41,16 @@ interface OtherChargeRow {
   aed_psqft: number | string | null;
   aed_mn: number | string | null;
   pct_gross_outflow: number | string | null;
+}
+
+interface BankAccountRow {
+  id: string;
+  account_name: string;
+  account_type: string;
+  bank_name: string | null;
+  account_number: string | null;
+  currency: string;
+  is_primary: boolean;
 }
 
 // Plain numeric display for Other Charges' rate/amount/percent columns — these are real-estate
@@ -96,6 +106,17 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
     `SELECT id, category, calculation_basis, aed_psqft, aed_mn, pct_gross_outflow
      FROM other_charges WHERE project_id = $1 AND organization_id = $2
      ORDER BY created_at DESC`,
+    [params.id, ctx.orgId]
+  );
+
+  // Bank/credit-card accounts tagged to this project (see bank_accounts.project_id,
+  // migration 1789000000000_bank_accounts_project_tag.js / BankAccountModal.tsx's own
+  // Project select) — the reverse direction of that same tag, surfaced here as a related list
+  // the same way Buildings and Other Charges already are.
+  const bankAccounts = await query<BankAccountRow>(
+    `SELECT id, account_name, account_type, bank_name, account_number, currency, is_primary
+     FROM bank_accounts WHERE project_id = $1 AND organization_id = $2
+     ORDER BY is_primary DESC, created_at DESC`,
     [params.id, ctx.orgId]
   );
 
@@ -193,6 +214,52 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
                       <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{b.code || "-"}</td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{formatDate(b.estimated_handover_date)}</td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{formatDate(b.actual_handover_date)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="card">
+          <div className="border-b border-gray-100 px-6 py-4">
+            <h2 className="text-sm font-semibold text-ink-800">Banks ({bankAccounts.length})</h2>
+          </div>
+          {bankAccounts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+              <Landmark size={28} className="text-gray-300" />
+              <p className="text-sm text-gray-500">No bank or credit card accounts tagged to this project yet.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-4 py-2.5">Account Name</th>
+                    <th className="px-4 py-2.5">Type</th>
+                    <th className="px-4 py-2.5">Bank Name</th>
+                    <th className="px-4 py-2.5">Account Number</th>
+                    <th className="px-4 py-2.5">Currency</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {bankAccounts.map((b) => (
+                    <tr key={b.id} className="hover:bg-gray-50">
+                      <td className="whitespace-nowrap px-4 py-2.5">
+                        <Link href="/banking" className="font-medium text-brand-600 hover:underline">
+                          {b.account_name}
+                        </Link>
+                        {b.is_primary && (
+                          <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-600">Primary</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">
+                        {b.account_type === "credit_card" ? "Credit Card" : "Bank"}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{b.bank_name || "-"}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{b.account_number || "-"}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{b.currency}</td>
                     </tr>
                   ))}
                 </tbody>

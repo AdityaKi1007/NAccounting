@@ -11,6 +11,7 @@ import {
   Plug,
   Percent,
   History,
+  Bug,
 } from "lucide-react";
 
 export interface SettingsItem {
@@ -37,6 +38,7 @@ export interface SettingsItem {
     | "general-info"
     | "audit-logs"
     | "api-usage"
+    | "debug-logs"
     | "revenue-recognition"
     | "access-matrix";
 }
@@ -237,6 +239,28 @@ export const settingsGroups: SettingsGroup[] = [
         label: "API Usage",
         description: "Request activity for your API keys, and today's usage against your daily limit.",
         view: "api-usage",
+      },
+    ],
+  },
+  {
+    // Requested directly: "create section Debug Logs next to Usages, to enable debug logs and
+    // record all kind of exceptions logs under new object Debug Logs. also enable option to
+    // delete logs by admin and super admin." A separate top-level group rather than a third
+    // item under Usages — Debug Logs carries stack traces and internal request context, which
+    // is meaningfully more sensitive than an audit trail entry or an API usage count, so it
+    // gets its own card with its own (tighter) Owner/Admin/Super Admin gate rather than blending
+    // into Usages' existing Owner/Admin-only Audit Logs bar.
+    slug: "debug-logs",
+    label: "Debug Logs",
+    icon: Bug,
+    section: "organization",
+    items: [
+      {
+        slug: "debug-logs",
+        label: "Debug Logs",
+        description:
+          "Turn on exception logging and review what's been captured. Owner, Admin and Super Admin only.",
+        view: "debug-logs",
       },
     ],
   },

@@ -19,7 +19,7 @@ export default async function EntityFormPage({
   const ctx = await requireActiveContext();
   await requireModuleAccess(ctx, entityKey, "write");
   const [refOptions, row] = await Promise.all([
-    loadRefOptions(entity, ctx.orgId, ctx.memberships),
+    loadRefOptions(entity, ctx.orgId, ctx.memberships, id),
     id ? getRow(entityKey, ctx.orgId, id) : Promise.resolve(null),
   ]);
 

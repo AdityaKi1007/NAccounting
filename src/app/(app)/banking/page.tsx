@@ -7,6 +7,7 @@ import BankingClient, { type BankRow, type BookBalance } from "@/components/bank
 
 interface BankAccountRow extends BankRow {
   gl_account_id: string | null;
+  project_id: string | null;
 }
 
 export default async function BankingPage() {
@@ -71,5 +72,13 @@ export default async function BankingPage() {
     [ctx.orgId]
   );
 
-  return <BankingClient rows={rows} bookBalances={bookBalances} glAccountOptions={glAccountOptions} />;
+  // Options for the Add/Edit modal's "Project" select, and to resolve each row's tagged
+  // project to a name/link in the expanded detail view — same pattern as glAccountOptions
+  // above (see BankAccountModal.tsx / BankingClient.tsx).
+  const projectOptions = await query<{ id: string; name: string }>(
+    `SELECT id, name FROM projects WHERE organization_id = $1 ORDER BY name ASC`,
+    [ctx.orgId]
+  );
+
+  return <BankingClient rows={rows} bookBalances={bookBalances} glAccountOptions={glAccountOptions} projectOptions={projectOptions} />;
 }

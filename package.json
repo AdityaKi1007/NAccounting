@@ -7,8 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "migrate": "node -r dotenv/config node_modules/node-pg-migrate/bin/node-pg-migrate",
-    "migrate:up": "node -r dotenv/config node_modules/node-pg-migrate/bin/node-pg-migrate up",
+    "migrate": "node -r dotenv/config node_modules/node-pg-migrate/bin/node-pg-migrate --no-check-order",
+    "migrate:up": "node -r dotenv/config node_modules/node-pg-migrate/bin/node-pg-migrate up --no-check-order",
     "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {

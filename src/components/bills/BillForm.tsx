@@ -163,6 +163,17 @@ export default function BillForm({
       }),
     [rows, taxRateOptions]
   );
+  // Same {value,label} shape the Vendor Name field's Combobox already uses — the Tax column
+  // used to be a plain narrow native <select> (hard to scan once an org has more than a
+  // handful of tax rates); this gives it the same searchable dropdown UX as every other picker
+  // in this form. "No Tax" is a real, explicit first option (value "") rather than relying on
+  // an unset Combobox showing its placeholder, so a line's tax can be cleared back to none
+  // through the same search-and-click flow as picking one.
+  const taxComboOptions = useMemo(
+    () => [{ value: "", label: "No Tax" }, ...taxRateOptions.map((o) => ({ value: o.value, label: `${o.label} (${o.rate}%)` }))],
+    [taxRateOptions]
+  );
+
   const subtotal = round2(computedRows.reduce((sum, r) => sum + r.amount, 0));
   const taxTotal = round2(computedRows.reduce((sum, r) => sum + r.taxAmount, 0));
   const total = round2(subtotal + taxTotal);
@@ -265,12 +276,12 @@ export default function BillForm({
           />
 
           <label className="label pt-1.5">Due Date</label>
-          <div className="flex max-w-md gap-3">
-            <input className="input" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-            <div className="flex items-center gap-2 whitespace-nowrap text-sm text-ink-800">
+          <div className="flex flex-wrap items-center gap-3">
+            <input className="input w-40 shrink-0" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            <div className="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm text-ink-800">
               Payment Terms
               <select
-                className="input"
+                className="input w-40 shrink-0"
                 value={paymentTerms}
                 onChange={(e) => {
                   setPaymentTerms(e.target.value);
@@ -343,14 +354,23 @@ export default function BillForm({
             </button>
           </div>
           <div className="overflow-x-auto rounded-md border border-gray-200">
-            <table className="w-full text-left text-sm">
+            {/* table-fixed makes every column's width come ONLY from its own <th>'s w-* class,
+               independent of what any other column's content wants — without it, `w-full`
+               under the browser's default table-layout: auto caps the table at the wrapper's
+               width and lets it squish the Account/Qty/Customer Details columns down to a few
+               pixels instead of actually triggering the overflow-x-auto scroll above. Same fix
+               already applied to DocumentForm.tsx/SalesOrderForm.tsx/CreditDebitNoteForm.tsx's
+               own line-items tables — see known-issues-local-env-addendum-line-items-table-
+               layout-2026-09-14.md, which explicitly did NOT cover Bills since it uses this
+               separate bespoke table, not DocumentForm.tsx. */}
+            <table className="w-full table-fixed text-left text-sm">
               <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
                 <tr>
                   <th className="w-56 px-3 py-2">Item Details</th>
                   <th className="w-44 px-3 py-2">Account</th>
                   <th className="w-20 px-3 py-2">Qty</th>
                   <th className="w-24 px-3 py-2">Rate</th>
-                  <th className="w-36 px-3 py-2">Tax</th>
+                  <th className="w-48 px-3 py-2">Tax</th>
                   <th className="w-40 px-3 py-2">Customer Details</th>
                   <th className="w-28 px-3 py-2">Amount</th>
                   <th className="w-10 px-3 py-2" />
@@ -406,14 +426,13 @@ export default function BillForm({
                       />
                     </td>
                     <td className="px-3 py-1.5">
-                      <select className="input" value={row.tax_rate_id} onChange={(e) => updateRow(row.key, { tax_rate_id: e.target.value })}>
-                        <option value="">Select a Tax</option>
-                        {taxRateOptions.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label} ({o.rate}%)
-                          </option>
-                        ))}
-                      </select>
+                      <Combobox
+                        options={taxComboOptions}
+                        value={row.tax_rate_id}
+                        onChange={(v) => updateRow(row.key, { tax_rate_id: v })}
+                        placeholder="Select a Tax"
+                        searchPlaceholder="Search taxes"
+                      />
                     </td>
                     <td className="px-3 py-1.5">
                       <select className="input" value={row.customer_id} onChange={(e) => updateRow(row.key, { customer_id: e.target.value })}>

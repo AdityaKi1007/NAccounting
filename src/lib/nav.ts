@@ -67,7 +67,7 @@ export const nav: NavItem[] = [
     ],
   },
   { label: "Manage time", href: "/time-tracking", icon: Clock },
-  { label: "Banking", href: "/banking", icon: Landmark },
+  { label: "Banks", href: "/banking", icon: Landmark },
   {
     label: "Property Master",
     icon: Building2,

@@ -541,6 +541,72 @@ const ENDPOINTS: EndpointDef[] = [
   }
 }`,
   },
+  {
+    method: "GET",
+    path: "/api/v1/units",
+    note: "List units",
+    response: `{
+  "data": [
+    {
+      "id": "7c1f9e2a-3d5b-4c8e-9a1f-2b6d8e4c0a7f",
+      "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+      "name": "Unit 402",
+      "project_id": "5a2e8b3e-1c4f-4a9d-9e2b-7f6d4c1a8b30",
+      "building_id": null,
+      "status": "available"
+    }
+  ]
+}`,
+  },
+  {
+    method: "POST",
+    path: "/api/v1/units",
+    note: "Create a unit — building_id is optional (unlike the in-app New Unit form)",
+    request: `{ "name": "Unit 402", "project_id": "5a2e8b3e-1c4f-4a9d-9e2b-7f6d4c1a8b30", "area": 1250, "listed_price": 950000 }`,
+    response: `{
+  "data": {
+    "id": "7c1f9e2a-3d5b-4c8e-9a1f-2b6d8e4c0a7f",
+    "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+    "name": "Unit 402",
+    "project_id": "5a2e8b3e-1c4f-4a9d-9e2b-7f6d4c1a8b30",
+    "building_id": null,
+    "area": "1250",
+    "listed_price": "950000",
+    "created_at": "2026-09-12T18:32:16.099Z"
+  }
+}`,
+  },
+  {
+    method: "GET",
+    path: "/api/v1/units/{id}",
+    note: "Get one unit",
+    response: `{
+  "data": {
+    "id": "7c1f9e2a-3d5b-4c8e-9a1f-2b6d8e4c0a7f",
+    "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+    "name": "Unit 402",
+    "project_id": "5a2e8b3e-1c4f-4a9d-9e2b-7f6d4c1a8b30",
+    "building_id": null,
+    "status": "available"
+  }
+}`,
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/units/{id}",
+    note: "Update a unit (project_id can't be cleared to null)",
+    request: `{ "building_id": "8b7c1a2e-5f3d-4e9a-b1c6-3d8f2a4e6c19", "status": "reserved" }`,
+    response: `{
+  "data": {
+    "id": "7c1f9e2a-3d5b-4c8e-9a1f-2b6d8e4c0a7f",
+    "organization_id": "bb52a4a8-54b2-4ccf-947a-4a2555136760",
+    "name": "Unit 402",
+    "project_id": "5a2e8b3e-1c4f-4a9d-9e2b-7f6d4c1a8b30",
+    "building_id": "8b7c1a2e-5f3d-4e9a-b1c6-3d8f2a4e6c19",
+    "status": "reserved"
+  }
+}`,
+  },
 ];
 
 const methodColor: Record<string, string> = {
@@ -646,8 +712,8 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
         <div>
           <h1 className="text-lg font-semibold text-ink-800">API Keys</h1>
           <p className="mt-0.5 text-sm text-gray-500">
-            Let external systems send invoices, receipts, customers, vendors, sales orders and credit memos into
-            NeoAccounting over REST.
+            Let external systems send invoices, receipts, customers, vendors, sales orders, credit memos and units
+            into NeoAccounting over REST.
           </p>
         </div>
         <button onClick={openNew} className="btn-primary">
@@ -663,7 +729,7 @@ export default function ApiKeysManager({ keys }: { keys: ApiKeyRow[] }) {
           <h2 className="text-base font-semibold text-ink-800">Connect a Third-Party System</h2>
           <p className="max-w-md text-sm text-gray-500">
             Generate a key and pass it as a bearer token to read and write invoices, receipts, customers, vendors,
-            sales orders and credit memos from another application.
+            sales orders, credit memos and units from another application.
           </p>
           <button onClick={openNew} className="btn-primary">
             Generate API Key

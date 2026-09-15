@@ -53,7 +53,7 @@ export const AUDIT_MODULE_LABELS: Record<string, string> = {
   "purchase-orders": "Purchase Orders",
   bills: "Bills",
   "payments-made": "Payments Made",
-  "bank-accounts": "Banking",
+  "bank-accounts": "Banks",
   projects: "Projects",
   inventory: "Units",
 };

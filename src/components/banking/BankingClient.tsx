@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Landmark, CreditCard, Star, Pencil, Trash2, ChevronDown, ChevronRight, Link2 } from "lucide-react";
-import BankAccountModal, { type BankAccountData, type GLAccountOption } from "@/components/banking/BankAccountModal";
+import BankAccountModal, { type BankAccountData, type GLAccountOption, type ProjectOption } from "@/components/banking/BankAccountModal";
 import { formatCurrency } from "@/lib/format";
 
 export interface BankRow {
@@ -27,16 +27,19 @@ export interface BookBalance {
 
 interface Row extends BankRow {
   gl_account_id: string | null;
+  project_id: string | null;
 }
 
 export default function BankingClient({
   rows,
   bookBalances,
   glAccountOptions,
+  projectOptions,
 }: {
   rows: Row[];
   bookBalances: Record<string, BookBalance>;
   glAccountOptions: GLAccountOption[];
+  projectOptions: ProjectOption[];
 }) {
   const router = useRouter();
   const [modalOpen, setModalOpen] = useState(false);
@@ -45,6 +48,7 @@ export default function BankingClient({
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const glAccountById = new Map(glAccountOptions.map((a) => [a.id, a]));
+  const projectById = new Map(projectOptions.map((p) => [p.id, p]));
 
   function openNew() {
     setEditing(null);
@@ -64,6 +68,7 @@ export default function BankingClient({
       description: row.description ?? "",
       is_primary: row.is_primary,
       gl_account_id: row.gl_account_id ?? "",
+      project_id: row.project_id ?? "",
     });
     setModalOpen(true);
   }
@@ -78,7 +83,7 @@ export default function BankingClient({
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white px-6 py-4">
         <div>
-          <h1 className="text-lg font-semibold text-ink-800">Banking</h1>
+          <h1 className="text-lg font-semibold text-ink-800">Banks</h1>
           <p className="mt-0.5 text-sm text-gray-500">Manage the bank and credit card accounts for your organization</p>
         </div>
         <button onClick={openNew} className="btn-primary">
@@ -109,6 +114,7 @@ export default function BankingClient({
                 const expanded = expandedId === row.id;
                 const book = bookBalances[row.id];
                 const gl = row.gl_account_id ? glAccountById.get(row.gl_account_id) : undefined;
+                const project = row.project_id ? projectById.get(row.project_id) : undefined;
                 return (
                   <div key={row.id}>
                     <button
@@ -162,6 +168,10 @@ export default function BankingClient({
                             <dd className="mt-0.5 text-ink-800">{row.currency}</dd>
                           </div>
                           <div>
+                            <dt className="text-xs font-medium uppercase tracking-wide text-gray-400">Account Number</dt>
+                            <dd className="mt-0.5 text-ink-800">{row.account_number || "—"}</dd>
+                          </div>
+                          <div>
                             <dt className="text-xs font-medium uppercase tracking-wide text-gray-400">Bank Identifier Code</dt>
                             <dd className="mt-0.5 text-ink-800">{row.bank_identifier_code || "—"}</dd>
                           </div>
@@ -176,6 +186,18 @@ export default function BankingClient({
                                 </a>
                               ) : (
                                 <span className="text-gray-400">Not linked yet — will be created on next save.</span>
+                              )}
+                            </dd>
+                          </div>
+                          <div className="sm:col-span-3">
+                            <dt className="text-xs font-medium uppercase tracking-wide text-gray-400">Project</dt>
+                            <dd className="mt-0.5 text-ink-800">
+                              {project ? (
+                                <a href={`/projects/${project.id}`} className="text-brand-600 hover:underline">
+                                  {project.name}
+                                </a>
+                              ) : (
+                                <span className="text-gray-400">Not tagged to a project.</span>
                               )}
                             </dd>
                           </div>
@@ -216,7 +238,13 @@ export default function BankingClient({
         )}
       </div>
 
-      <BankAccountModal open={modalOpen} onClose={() => setModalOpen(false)} initial={editing} glAccountOptions={glAccountOptions} />
+      <BankAccountModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        initial={editing}
+        glAccountOptions={glAccountOptions}
+        projectOptions={projectOptions}
+      />
     </div>
   );
 }

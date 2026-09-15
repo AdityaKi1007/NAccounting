@@ -19,7 +19,7 @@ interface FieldSpec {
 
 type Catalog = Record<string, Partial<Record<"create" | "update", FieldSpec[]>>>;
 
-const ENTITY_ORDER = ["invoices", "sales-orders", "receipts", "customers", "vendors", "credit-notes"];
+const ENTITY_ORDER = ["invoices", "sales-orders", "receipts", "customers", "vendors", "credit-notes", "units"];
 
 // Structural, always-present pieces of each entity's request/response shape that are NOT part
 // of the configurable field catalog (line items, computed totals, system columns) — kept here
@@ -107,11 +107,16 @@ function buildPreview(entity: string, operation: "create" | "update", specs: Fie
     return { request, response };
   }
 
-  if (entity === "customers" || entity === "vendors") {
+  if (entity === "customers" || entity === "vendors" || entity === "units") {
     const request = reqFields;
     const response = {
       data: {
-        id: entity === "customers" ? "05dfee68-f504-4694-83b0-471c251676ab" : "9e499ef0-bd64-4454-8649-b7d79f8fdbd7",
+        id:
+          entity === "customers"
+            ? "05dfee68-f504-4694-83b0-471c251676ab"
+            : entity === "vendors"
+            ? "9e499ef0-bd64-4454-8649-b7d79f8fdbd7"
+            : "7c1f9e2a-3d5b-4c8e-9a1f-2b6d8e4c0a7f",
         organization_id: SAMPLE_ORG_ID,
         ...resFields,
         created_at: "2026-09-12T18:32:16.099Z",

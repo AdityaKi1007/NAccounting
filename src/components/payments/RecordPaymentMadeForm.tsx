@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "@/components/ui/Modal";
 import Combobox, { type ComboboxOption } from "@/components/ui/Combobox";
@@ -14,6 +14,19 @@ interface OpenBill {
   billDate: string;
   total: number;
   balanceDue: number;
+}
+
+/** A bank account option carrying its own optional Project tag (bank_accounts.project_id — see
+ * BankAccountModal.tsx's own Project select) so "Paid Through" can be filtered by the Project
+ * picked above it, plus the `type` of the Chart of Accounts entry it's linked to
+ * (bank_accounts.gl_account_id -> accounts.type) so it can also be narrowed to only
+ * Cash-linked accounts when Payment Mode is Cash — same shape/reasoning as
+ * RecordPaymentForm.tsx's own BankAccountOption. */
+interface BankAccountOption {
+  value: string;
+  label: string;
+  projectId: string | null;
+  glAccountType: string | null;
 }
 
 const PAYMENT_MODES = [
@@ -51,18 +64,26 @@ export default function RecordPaymentMadeForm({
   unitOptions = [],
   currency,
   numberPreview,
+  initialVendorId,
+  initialBillId,
 }: {
   vendorOptions: ComboboxOption[];
-  bankAccountOptions: ComboboxOption[];
+  bankAccountOptions: BankAccountOption[];
   /** Optional Property Master Project/Unit tags — see payments_made.project_id/unit_id. */
   projectOptions?: ComboboxOption[];
   unitOptions?: ComboboxOption[];
   currency: string;
   numberPreview?: string;
+  /** Deep-link prefill from a Bill's "Record Payment" button (see BillDetailView.tsx) —
+   * /payments-made/new?vendor=<id>&bill=<id>. When both are present, the form starts on this
+   * vendor with Amount Paid defaulted to exactly this bill's balance due, applied entirely to
+   * that one bill rather than spread oldest-first across every open bill for the vendor. */
+  initialVendorId?: string;
+  initialBillId?: string;
 }) {
   const router = useRouter();
 
-  const [vendorId, setVendorId] = useState("");
+  const [vendorId, setVendorId] = useState(initialVendorId ?? "");
   const [amountPaid, setAmountPaid] = useState("");
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [paymentNumber, setPaymentNumber] = useState("");
@@ -81,6 +102,14 @@ export default function RecordPaymentMadeForm({
   const [saving, setSaving] = useState<"draft" | "paid" | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 
+  // One-shot bill-prefill bookkeeping: appliedInitialBillRef makes sure the special-cased
+  // "apply fully to just this bill" allocation only ever runs once (the first time this
+  // vendor's bills load), even if the vendor's bill list is refetched later. skipAutoApplyRef
+  // tells the amountPaid-watching effect below to skip its normal oldest-first autoApply pass
+  // the one time that prefill sets amountPaid itself, so it doesn't immediately get overwritten.
+  const appliedInitialBillRef = useRef(false);
+  const skipAutoApplyRef = useRef(false);
+
   function close() {
     router.push("/payments-made");
     router.refresh();
@@ -98,8 +127,20 @@ export default function RecordPaymentMadeForm({
       .then((res) => (res.ok ? res.json() : { bills: [] }))
       .then((data: { bills: OpenBill[] }) => {
         if (cancelled) return;
-        setBills(data.bills ?? []);
-        setAllocations(autoApply(parseFloat(amountPaid) || 0, data.bills ?? []));
+        const loadedBills = data.bills ?? [];
+        setBills(loadedBills);
+
+        const targetBill = !appliedInitialBillRef.current && initialBillId ? loadedBills.find((b) => b.id === initialBillId) : undefined;
+        if (targetBill) {
+          appliedInitialBillRef.current = true;
+          skipAutoApplyRef.current = true;
+          setAmountPaid(String(targetBill.balanceDue));
+          const only: Record<string, number> = {};
+          for (const b of loadedBills) only[b.id] = b.id === targetBill.id ? targetBill.balanceDue : 0;
+          setAllocations(only);
+        } else {
+          setAllocations(autoApply(parseFloat(amountPaid) || 0, loadedBills));
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingBills(false);
@@ -112,6 +153,10 @@ export default function RecordPaymentMadeForm({
 
   useEffect(() => {
     if (bills.length === 0) return;
+    if (skipAutoApplyRef.current) {
+      skipAutoApplyRef.current = false;
+      return;
+    }
     setAllocations(autoApply(parseFloat(amountPaid) || 0, bills));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amountPaid]);
@@ -119,6 +164,30 @@ export default function RecordPaymentMadeForm({
   const amountPaidNum = parseFloat(amountPaid) || 0;
   const totalApplied = Object.values(allocations).reduce((sum, v) => sum + (v || 0), 0);
   const amountInExcess = Math.max(0, Math.round((amountPaidNum - totalApplied) * 100) / 100);
+
+  // "Paid Through" is strictly scoped by the selected Project: with a Project selected, only
+  // accounts tagged to that exact project show; with no Project selected, only untagged
+  // (org-wide) accounts show — accounts tagged to any other project are always hidden either
+  // way. On top of that, Payment Mode = Cash narrows further to only accounts linked to a
+  // Cash-type Chart of Accounts entry (bank_accounts.gl_account_id -> accounts.type = 'cash').
+  // Same reasoning as RecordPaymentForm.tsx's own filteredBankAccountOptions.
+  const filteredBankAccountOptions = useMemo(() => {
+    return bankAccountOptions.filter((a) => {
+      const projectMatches = projectId ? a.projectId === projectId : !a.projectId;
+      if (!projectMatches) return false;
+      if (paymentMode === "cash" && a.glAccountType !== "cash") return false;
+      return true;
+    });
+  }, [bankAccountOptions, projectId, paymentMode]);
+
+  // If the previously-selected Paid Through account gets filtered out by a Project change,
+  // clear it rather than silently keep submitting a now-hidden value.
+  useEffect(() => {
+    if (bankAccountId && !filteredBankAccountOptions.some((a) => a.value === bankAccountId)) {
+      setBankAccountId("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredBankAccountOptions]);
 
   function setAllocation(billId: string, raw: string, cap: number) {
     const n = parseFloat(raw);
@@ -218,6 +287,16 @@ export default function RecordPaymentMadeForm({
             placeholder={numberPreview ? `Auto: ${numberPreview}` : "Auto-generated if left blank"}
           />
 
+          <label className="label pt-2">Project</label>
+          <select className="input max-w-sm" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            <option value="">Select Project</option>
+            {projectOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
           <label className="label pt-2">Payment Mode</label>
           <select className="input max-w-sm" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
             {PAYMENT_MODES.map((m) => (
@@ -232,7 +311,7 @@ export default function RecordPaymentMadeForm({
           </label>
           <select className="input max-w-sm" value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)}>
             <option value="">Select an account</option>
-            {bankAccountOptions.map((a) => (
+            {filteredBankAccountOptions.map((a) => (
               <option key={a.value} value={a.value}>
                 {a.label}
               </option>
@@ -241,16 +320,6 @@ export default function RecordPaymentMadeForm({
 
           <label className="label pt-2">Reference#</label>
           <input type="text" className="input max-w-sm" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} />
-
-          <label className="label pt-2">Project</label>
-          <select className="input max-w-sm" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            <option value="">Select Project</option>
-            {projectOptions.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
 
           <label className="label pt-2">Unit</label>
           <select className="input max-w-sm" value={unitId} onChange={(e) => setUnitId(e.target.value)}>

@@ -237,7 +237,7 @@ export default function DataTable({
           <tr className="border-b border-gray-200 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
             {visibleColumns.map((col) => (
               <th key={col} className="px-4 py-2.5">
-                {fieldFor(fields, col)?.label ?? titleCase(col)}
+                {fieldFor(fields, col)?.listLabel ?? fieldFor(fields, col)?.label ?? titleCase(col)}
               </th>
             ))}
             <th className="px-4 py-2.5 text-right">Actions</th>

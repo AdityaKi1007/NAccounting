@@ -16,7 +16,7 @@ import { pool, query } from "@/lib/db";
 // configuration can never affect another org's integration, and every lookup here always goes
 // through the caller's own ctx.orgId, exactly like every other /api/v1/* read or write.
 
-export type ConfigurableEntity = "invoices" | "sales-orders" | "receipts" | "customers" | "vendors" | "credit-notes";
+export type ConfigurableEntity = "invoices" | "sales-orders" | "receipts" | "customers" | "vendors" | "credit-notes" | "units";
 export type ConfigurableOperation = "create" | "update";
 
 export interface FieldSpec {
@@ -216,6 +216,37 @@ export const FIELD_CATALOG: Catalog = {
       { name: "crm_cn_no", label: "CRM CN No", sample: "CRM-CN-6203" },
     ],
   },
+  units: {
+    // project_id is core (NOT NULL at the DB level, no default) — building_id is deliberately
+    // NOT core here, unlike the in-app "New Unit" form which still requires it; see
+    // migrations/1786000000000_units_building_optional.js.
+    create: [
+      { name: "name", label: "Unit Name", core: true, sample: "Unit 402" },
+      { name: "project_id", label: "Project", core: true, sample: "5a2e8b3e-1c4f-4a9d-9e2b-7f6d4c1a8b30" },
+      { name: "building_id", label: "Building", sample: null },
+      { name: "code", label: "Code", sample: "U-402" },
+      { name: "floor", label: "Floor", sample: "4" },
+      { name: "area", label: "Area", sample: 1250 },
+      { name: "listed_price", label: "Listed Price", sample: 950000 },
+      { name: "status", label: "Status", sample: "available" },
+      { name: "unit_type", label: "Unit Type", sample: "apartment" },
+      { name: "unit_sub_type", label: "Unit Sub Type", sample: "2br" },
+      { name: "usage_type", label: "Usage Type", sample: "residential" },
+    ],
+    update: [
+      { name: "name", label: "Unit Name", core: true, sample: "Unit 402" },
+      { name: "project_id", label: "Project", core: true, sample: "5a2e8b3e-1c4f-4a9d-9e2b-7f6d4c1a8b30" },
+      { name: "building_id", label: "Building", sample: null },
+      { name: "code", label: "Code", sample: "U-402" },
+      { name: "floor", label: "Floor", sample: "4" },
+      { name: "area", label: "Area", sample: 1250 },
+      { name: "listed_price", label: "Listed Price", sample: 975000 },
+      { name: "status", label: "Status", sample: "sold" },
+      { name: "unit_type", label: "Unit Type", sample: "apartment" },
+      { name: "unit_sub_type", label: "Unit Sub Type", sample: "2br" },
+      { name: "usage_type", label: "Usage Type", sample: "residential" },
+    ],
+  },
 };
 
 export const ENTITY_LABELS: Record<ConfigurableEntity, string> = {
@@ -225,6 +256,7 @@ export const ENTITY_LABELS: Record<ConfigurableEntity, string> = {
   customers: "Customers",
   vendors: "Vendors",
   "credit-notes": "Credit Memos",
+  units: "Units",
 };
 
 function isConfigurableEntity(x: string): x is ConfigurableEntity {

@@ -266,12 +266,19 @@ export default function JournalForm({ accountOptions, contactOptions, currencyOp
 
       <div>
         <div className="overflow-x-auto rounded-md border border-gray-200">
-          <table className="w-full text-left text-sm">
+          {/* table-fixed — same fix as BillForm.tsx/VendorCreditForm.tsx's item tables and
+             DocumentForm.tsx before them: without it, table-layout: auto lets w-full squish
+             every column instead of triggering the overflow-x-auto scroll above. The
+             Description column had no width class at all (relying on leftover space, which
+             table-fixed doesn't allocate) so it now gets an explicit w-64, same reasoning as
+             DocumentForm.tsx's own Description column fix. See known-issues-local-env-
+             addendum-line-items-table-layout-2026-09-14.md and its 2026-09-15 follow-up. */}
+          <table className="w-full table-fixed text-left text-sm">
             <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
               <tr>
                 <th className="w-6 px-1 py-2" />
                 <th className="w-56 px-3 py-2">Account</th>
-                <th className="px-3 py-2">Description</th>
+                <th className="w-64 px-3 py-2">Description</th>
                 <th className="w-48 px-3 py-2">Contact ({currencyCode})</th>
                 <th className="w-28 px-3 py-2">Debits</th>
                 <th className="w-28 px-3 py-2">Credits</th>

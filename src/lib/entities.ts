@@ -40,6 +40,11 @@ export interface FieldDef {
    * true/false states aren't actually an active/inactive distinction (e.g. tax-rates'
    * is_default — "Default"/"—"). */
   booleanLabels?: { true: string; false: string };
+  /** Overrides this field's list-column header, when the natural form label (e.g. "Parent
+   * Account") reads better in an edit form than the fuller header a list column wants (e.g.
+   * "Parent Account Name" — matches Zoho Books' own Chart of Accounts list). Falls back to
+   * `label` when unset, same as every other field always did before this existed. */
+  listLabel?: string;
 }
 
 export interface EntityDef {
@@ -961,6 +966,10 @@ export const entities: Record<string, EntityDef> = {
           { label: "Draft", value: "draft" },
           { label: "Open", value: "open" },
           { label: "Overdue", value: "overdue" },
+          // Set only via the dedicated Void action (voidBill in bills-api.ts), not hand-picked
+          // here — same reasoning as Paid/Partially Paid being excluded above, plus voidBill's
+          // own guard against voiding a bill that already has payments applied.
+          { label: "Void", value: "void" },
         ],
       },
       { name: "notes", label: "Notes", type: "textarea" },
@@ -1173,7 +1182,7 @@ export const entities: Record<string, EntityDef> = {
     kind: "flat",
     titleField: "name",
     orderBy: "code asc nulls last, name asc",
-    listColumns: ["code", "name", "type", "project_id", "is_active"],
+    listColumns: ["code", "name", "type", "project_id", "parent_account_id", "is_active"],
     hasDetailView: true,
     fields: [
       { name: "code", label: "Account Code", type: "text" },
@@ -1186,6 +1195,13 @@ export const entities: Record<string, EntityDef> = {
         required: true,
         options: ACCOUNT_TYPE_OPTIONS,
       },
+      // Self-referencing "make this a sub-account" — see migrations/1785000000000_chart_of_
+      // accounts_parent.js for the full design writeup (deliberately no type-matching or
+      // balance-rollup enforcement in this pass). The generic refEntity dropdown would
+      // otherwise let an account list (and be set as) its own parent — guarded against in two
+      // places: crud.ts's loadRefOptions excludes the record being edited from its own options,
+      // and validateRefFields rejects a direct API call that tries anyway.
+      { name: "parent_account_id", label: "Parent Account", listLabel: "Parent Account Name", type: "select", refEntity: "chart-of-accounts", refLabelField: "name" },
       // Optional — most accounts (Cash, VAT Payable, Accounts Receivable, ...) are org-wide,
       // not tied to any one Property Master project. Lets the few that should be (a
       // project-specific bank account, a project cost-center account) be tagged and then
@@ -1269,8 +1285,8 @@ export const entities: Record<string, EntityDef> = {
     key: "bank-accounts",
     table: "bank_accounts",
     label: "Bank / Credit Card",
-    labelPlural: "Banking",
-    module: "Banking",
+    labelPlural: "Banks",
+    module: "Banks",
     kind: "flat",
     titleField: "account_name",
     orderBy: "is_primary desc, created_at desc",
@@ -1293,6 +1309,16 @@ export const entities: Record<string, EntityDef> = {
       { name: "account_number", label: "Account Number", type: "text" },
       { name: "bank_name", label: "Bank Name", type: "text" },
       { name: "bank_identifier_code", label: "Bank Identifier Code", type: "text" },
+      // Optional Property Master tag — same reasoning as chart-of-accounts' own project_id
+      // (see that entity's comment: "a project-specific bank account" is the literal example
+      // given there). Most bank/credit-card accounts are org-wide, not tied to any one
+      // project. Independent of gl_account_id's own linked Chart of Accounts entry, which can
+      // carry its own separate project_id — tagging one doesn't tag or require tagging the
+      // other (migrations/1789000000000_bank_accounts_project_tag.js). Not shown in
+      // listColumns (BankingClient.tsx is a bespoke card list, not the generic DataTable);
+      // BankAccountModal.tsx renders this as its own dedicated select, same as every other
+      // field on this entity.
+      { name: "project_id", label: "Project", type: "select", refEntity: "projects", refLabelField: "name" },
       { name: "description", label: "Description", type: "textarea" },
       { name: "is_primary", label: "Make this primary", type: "boolean", default: false },
       // Optional — lets this bank/credit-card account be linked to an EXISTING Chart of

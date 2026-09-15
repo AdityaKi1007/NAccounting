@@ -229,8 +229,14 @@ export interface Membership {
   role: string;
 }
 
-/** For select-type fields backed by another entity, load {value,label} options scoped to the org. */
-export async function loadRefOptions(entity: EntityDef, orgId: string, memberships: Membership[] = []) {
+/** For select-type fields backed by another entity, load {value,label} options scoped to the
+ * org. `excludeId` — the id of the record currently being edited, if any — is left out of
+ * every field's option list. This only ever matters for a self-referencing field (a refEntity
+ * pointing back at its own entity, e.g. Chart of Accounts' Parent Account); for every other
+ * field it's a no-op, since a record's own id essentially never coincides with a row in some
+ * unrelated referenced table. Without this, editing a Chart of Accounts entry would offer that
+ * same account as a candidate for its own Parent Account. */
+export async function loadRefOptions(entity: EntityDef, orgId: string, memberships: Membership[] = [], excludeId?: string) {
   const refFields = entity.fields.filter((f) => f.type === "select" && f.refEntity);
   const result: Record<string, { value: string; label: string }[]> = {};
   for (const field of refFields) {
@@ -248,10 +254,15 @@ export async function loadRefOptions(entity: EntityDef, orgId: string, membershi
     const refEntity = getEntity(field.refEntity as string);
     if (!refEntity) continue;
     const labelField = field.refLabelField ?? refEntity.titleField;
-    const rows = await query<Record<string, unknown>>(
-      `SELECT id, ${labelField} FROM ${refEntity.table} WHERE organization_id = $1 ORDER BY ${labelField} ASC`,
-      [orgId]
-    );
+    const rows = excludeId
+      ? await query<Record<string, unknown>>(
+          `SELECT id, ${labelField} FROM ${refEntity.table} WHERE organization_id = $1 AND id != $2 ORDER BY ${labelField} ASC`,
+          [orgId, excludeId]
+        )
+      : await query<Record<string, unknown>>(
+          `SELECT id, ${labelField} FROM ${refEntity.table} WHERE organization_id = $1 ORDER BY ${labelField} ASC`,
+          [orgId]
+        );
     result[field.name] = rows.map((r) => ({
       value: String(r.id),
       label: String(r[labelField] ?? ""),
@@ -286,7 +297,13 @@ export async function loadRefOptions(entity: EntityDef, orgId: string, membershi
 export async function validateRefFields(
   entityKey: string,
   orgId: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  // The id of the record being updated, if this is an edit (never set on create — a record
+  // can't reference itself before it exists). Only meaningful for a self-referencing field
+  // (a refEntity pointing back at its own entity, e.g. Chart of Accounts' Parent Account) —
+  // rejects a direct API call that tries to set a record as its own parent, the server-side
+  // backstop to loadRefOptions already excluding it from the dropdown's own option list.
+  currentId?: string
 ): Promise<{ valid: true } | { valid: false; error: string }> {
   const entity = getEntity(entityKey);
   if (!entity) return { valid: true };
@@ -295,6 +312,9 @@ export async function validateRefFields(
     if (!(field.name in input)) continue;
     const value = input[field.name];
     if (value === undefined || value === null || value === "") continue;
+    if (currentId && field.refEntity === entityKey && String(value) === currentId) {
+      return { valid: false, error: `${field.label} can't reference itself.` };
+    }
     const refEntity = getEntity(field.refEntity as string);
     if (!refEntity) continue;
     const ok = await idBelongsToOrg(refEntity.table, value, orgId);

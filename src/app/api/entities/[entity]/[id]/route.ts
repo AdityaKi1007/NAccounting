@@ -15,6 +15,7 @@ import {
 } from "@/lib/auto-journal";
 import { reverseReceiptApplication } from "@/lib/receipts-api";
 import { billsAllocatedByPayment } from "@/lib/payments-made-api";
+import { logException } from "@/lib/debug-logs";
 
 export async function GET(
   _req: NextRequest,
@@ -27,9 +28,16 @@ export async function GET(
   const accessError = await moduleAccessErrorResponse(ctx, params.entity, "view");
   if (accessError) return accessError;
 
-  const row = await getRow(params.entity, ctx.orgId, params.id);
-  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json({ row });
+  // Top-level try/catch feeding Debug Logs (see src/lib/debug-logs.ts) — a no-op unless this
+  // org has explicitly turned Debug Logs on.
+  try {
+    const row = await getRow(params.entity, ctx.orgId, params.id);
+    if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ row });
+  } catch (err) {
+    await logException({ orgId: ctx.orgId, source: "server", error: err, context: { route: `/api/entities/${params.entity}/${params.id}`, method: "GET" } });
+    return NextResponse.json({ error: "Something went wrong." }, { status: 500 });
+  }
 }
 
 export async function PATCH(
@@ -68,81 +76,91 @@ export async function PATCH(
   }
 
   // Same reasoning as the POST route's own check — see validateRefFields' comment in crud.ts.
-  const refCheck = await validateRefFields(params.entity, ctx.orgId, body);
+  // params.id is passed as currentId so a self-referencing field (Chart of Accounts' Parent
+  // Account) can't be set to the record's own id via a direct API call.
+  const refCheck = await validateRefFields(params.entity, ctx.orgId, body, params.id);
   if (!refCheck.valid) {
     return NextResponse.json({ error: refCheck.error }, { status: 400 });
   }
 
-  const row = await updateRow(params.entity, ctx.orgId, params.id, body, { userId: ctx.userId });
-  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // Top-level try/catch feeding Debug Logs (see src/lib/debug-logs.ts) — a no-op unless this
+  // org has explicitly turned Debug Logs on.
+  try {
+    const row = await updateRow(params.entity, ctx.orgId, params.id, body, { userId: ctx.userId });
+    if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Covers editing an existing payment through the generic edit form (status, amount, bank
-  // charges, deposit account are all editable there — see payments-received in entities.ts),
-  // which doesn't touch invoice allocations but should still keep the payment's own journal
-  // in sync with whatever it now says.
-  if (params.entity === "payments-received") {
-    const client = await pool.connect();
-    try {
-      await syncPaymentJournal(client, ctx.orgId, params.id);
-    } finally {
-      client.release();
+    // Covers editing an existing payment through the generic edit form (status, amount, bank
+    // charges, deposit account are all editable there — see payments-received in entities.ts),
+    // which doesn't touch invoice allocations but should still keep the payment's own journal
+    // in sync with whatever it now says.
+    if (params.entity === "payments-received") {
+      const client = await pool.connect();
+      try {
+        await syncPaymentJournal(client, ctx.orgId, params.id);
+      } finally {
+        client.release();
+      }
     }
+
+    // Same "only entry point" reasoning as the POST route above — see auto-journal.ts's
+    // "Purchases side" section.
+    if (params.entity === "payments-made") {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await syncPaymentMadeJournal(client, ctx.orgId, params.id);
+        // The generic edit form doesn't touch bill_payment_allocations itself, but it can
+        // change amount/status, which changes what each already-allocated bill's balance_due
+        // should be — recompute every bill this payment is (still) allocated against.
+        for (const billId of previousBillIds) await recomputeBillBalance(client, ctx.orgId, billId);
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK");
+        console.error(err);
+        await logException({ orgId: ctx.orgId, source: "server", error: err, context: { route: "/api/entities/payments-made", method: "PATCH", step: "journal-sync" } });
+      } finally {
+        client.release();
+      }
+    } else if (params.entity === "expenses") {
+      const client = await pool.connect();
+      try {
+        await syncExpenseJournal(client, ctx.orgId, params.id);
+      } finally {
+        client.release();
+      }
+    } else if (params.entity === "vendor-credits") {
+      const client = await pool.connect();
+      try {
+        await syncVendorCreditJournal(client, ctx.orgId, params.id);
+      } finally {
+        client.release();
+      }
+    } else if (params.entity === "vendors") {
+      // opening_balance may have changed — rebuild the consolidated Opening Balances journal's
+      // Accounts Payable line so the GL stays in sync with this vendor's saved value.
+      const client = await pool.connect();
+      try {
+        await syncOpeningBalanceJournal(client, ctx.orgId);
+      } finally {
+        client.release();
+      }
+    } else if (params.entity === "bank-accounts") {
+      // Same reasoning as the POST route's bank-accounts branch — a no-op if this edit already
+      // set gl_account_id (linked to an existing account, or already auto-created earlier),
+      // otherwise creates and links a fresh one now rather than leaving it unlinked.
+      const client = await pool.connect();
+      try {
+        await getOrCreateBankGLAccount(client, ctx.orgId, params.id);
+      } finally {
+        client.release();
+      }
+    }
+
+    return NextResponse.json({ row });
+  } catch (err) {
+    await logException({ orgId: ctx.orgId, source: "server", error: err, context: { route: `/api/entities/${params.entity}/${params.id}`, method: "PATCH" } });
+    return NextResponse.json({ error: "Something went wrong." }, { status: 500 });
   }
-
-  // Same "only entry point" reasoning as the POST route above — see auto-journal.ts's
-  // "Purchases side" section.
-  if (params.entity === "payments-made") {
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await syncPaymentMadeJournal(client, ctx.orgId, params.id);
-      // The generic edit form doesn't touch bill_payment_allocations itself, but it can
-      // change amount/status, which changes what each already-allocated bill's balance_due
-      // should be — recompute every bill this payment is (still) allocated against.
-      for (const billId of previousBillIds) await recomputeBillBalance(client, ctx.orgId, billId);
-      await client.query("COMMIT");
-    } catch (err) {
-      await client.query("ROLLBACK");
-      console.error(err);
-    } finally {
-      client.release();
-    }
-  } else if (params.entity === "expenses") {
-    const client = await pool.connect();
-    try {
-      await syncExpenseJournal(client, ctx.orgId, params.id);
-    } finally {
-      client.release();
-    }
-  } else if (params.entity === "vendor-credits") {
-    const client = await pool.connect();
-    try {
-      await syncVendorCreditJournal(client, ctx.orgId, params.id);
-    } finally {
-      client.release();
-    }
-  } else if (params.entity === "vendors") {
-    // opening_balance may have changed — rebuild the consolidated Opening Balances journal's
-    // Accounts Payable line so the GL stays in sync with this vendor's saved value.
-    const client = await pool.connect();
-    try {
-      await syncOpeningBalanceJournal(client, ctx.orgId);
-    } finally {
-      client.release();
-    }
-  } else if (params.entity === "bank-accounts") {
-    // Same reasoning as the POST route's bank-accounts branch — a no-op if this edit already
-    // set gl_account_id (linked to an existing account, or already auto-created earlier),
-    // otherwise creates and links a fresh one now rather than leaving it unlinked.
-    const client = await pool.connect();
-    try {
-      await getOrCreateBankGLAccount(client, ctx.orgId, params.id);
-    } finally {
-      client.release();
-    }
-  }
-
-  return NextResponse.json({ row });
 }
 
 export async function DELETE(
@@ -181,40 +199,48 @@ export async function DELETE(
   // that status no longer exists. reverseReceiptApplication has to run BEFORE the delete
   // below, in its own transaction, since the allocations it reads vanish the instant the
   // payment row does.
-  if (params.entity === "payments-received") {
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await reverseReceiptApplication(client, ctx.orgId, params.id);
-      await client.query("COMMIT");
-    } catch (err) {
-      await client.query("ROLLBACK");
-      console.error(err);
-    } finally {
-      client.release();
+  // Top-level try/catch feeding Debug Logs (see src/lib/debug-logs.ts) — a no-op unless this
+  // org has explicitly turned Debug Logs on.
+  try {
+    if (params.entity === "payments-received") {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await reverseReceiptApplication(client, ctx.orgId, params.id);
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK");
+        console.error(err);
+        await logException({ orgId: ctx.orgId, source: "server", error: err, context: { route: "/api/entities/payments-received", method: "DELETE", step: "reverse-receipt-application" } });
+      } finally {
+        client.release();
+      }
     }
-  }
 
-  await deleteRow(params.entity, ctx.orgId, params.id, { userId: ctx.userId });
+    await deleteRow(params.entity, ctx.orgId, params.id, { userId: ctx.userId });
 
-  if (billIds.length > 0) {
-    const client = await pool.connect();
-    try {
-      for (const id of billIds) await recomputeBillBalance(client, ctx.orgId, id);
-    } finally {
-      client.release();
+    if (billIds.length > 0) {
+      const client = await pool.connect();
+      try {
+        for (const id of billIds) await recomputeBillBalance(client, ctx.orgId, id);
+      } finally {
+        client.release();
+      }
     }
-  }
 
-  // Deleting a vendor removes its opening_balance from the AP total — rebuild the
-  // consolidated Opening Balances journal so it doesn't keep counting the deleted row.
-  if (params.entity === "vendors") {
-    const client = await pool.connect();
-    try {
-      await syncOpeningBalanceJournal(client, ctx.orgId);
-    } finally {
-      client.release();
+    // Deleting a vendor removes its opening_balance from the AP total — rebuild the
+    // consolidated Opening Balances journal so it doesn't keep counting the deleted row.
+    if (params.entity === "vendors") {
+      const client = await pool.connect();
+      try {
+        await syncOpeningBalanceJournal(client, ctx.orgId);
+      } finally {
+        client.release();
+      }
     }
+  } catch (err) {
+    await logException({ orgId: ctx.orgId, source: "server", error: err, context: { route: `/api/entities/${params.entity}/${params.id}`, method: "DELETE" } });
+    return NextResponse.json({ error: "Something went wrong." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

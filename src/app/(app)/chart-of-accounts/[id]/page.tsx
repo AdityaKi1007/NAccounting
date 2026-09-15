@@ -16,6 +16,7 @@ interface AccountRow {
   description: string | null;
   is_active: boolean;
   project_id: string | null;
+  parent_account_id: string | null;
   iban_number: string | null;
   bank_name: string | null;
 }
@@ -35,7 +36,7 @@ export default async function AccountDetailPage({ params }: { params: { id: stri
   await requireModuleAccess(ctx, "chart-of-accounts", "view");
 
   const account = await queryOne<AccountRow>(
-    `SELECT id, name, code, type, description, is_active, project_id, iban_number, bank_name
+    `SELECT id, name, code, type, description, is_active, project_id, parent_account_id, iban_number, bank_name
      FROM accounts WHERE id = $1 AND organization_id = $2`,
     [params.id, ctx.orgId]
   );
@@ -45,12 +46,18 @@ export default async function AccountDetailPage({ params }: { params: { id: stri
   const typeLabel = entity?.fields.find((f) => f.name === "type")?.options?.find((o) => o.value === account.type)?.label
     ?? titleCase(account.type);
 
-  const [org, project] = await Promise.all([
+  const [org, project, parentAccount] = await Promise.all([
     queryOne<{ currency: string }>(`SELECT currency FROM organizations WHERE id = $1`, [ctx.orgId]),
     account.project_id
       ? queryOne<{ id: string; name: string }>(
           `SELECT id, name FROM projects WHERE id = $1 AND organization_id = $2`,
           [account.project_id, ctx.orgId]
+        )
+      : Promise.resolve(null),
+    account.parent_account_id
+      ? queryOne<{ id: string; name: string }>(
+          `SELECT id, name FROM accounts WHERE id = $1 AND organization_id = $2`,
+          [account.parent_account_id, ctx.orgId]
         )
       : Promise.resolve(null),
   ]);
@@ -140,6 +147,14 @@ export default async function AccountDetailPage({ params }: { params: { id: stri
             <p className="pt-2 text-sm text-gray-600">
               <span className="font-medium text-ink-700">Description: </span>
               {account.description}
+            </p>
+          )}
+          {parentAccount && (
+            <p className="pt-1 text-sm text-gray-600">
+              <span className="font-medium text-ink-700">Parent Account: </span>
+              <Link href={`/chart-of-accounts/${parentAccount.id}`} className="text-brand-600 hover:underline">
+                {parentAccount.name}
+              </Link>
             </p>
           )}
           {project && (

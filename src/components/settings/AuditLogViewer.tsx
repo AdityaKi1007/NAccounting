@@ -17,7 +17,7 @@ const MODULE_LABELS: Record<string, string> = {
   "purchase-orders": "Purchase Orders",
   bills: "Bills",
   "payments-made": "Payments Made",
-  "bank-accounts": "Banking",
+  "bank-accounts": "Banks",
   projects: "Projects",
   inventory: "Units",
 };
@@ -172,7 +172,7 @@ export default function AuditLogViewer({ users }: { users: OrgUser[] }) {
         <h1 className="text-lg font-semibold text-ink-800">Audit Logs</h1>
         <p className="mt-0.5 text-sm text-gray-500">
           Every create, update and delete across Invoices, Receipts, Customers, Vendors, Credit Notes, Purchase
-          Orders, Bills, Payments Made, Banking, Projects and Units. Visible to Owner and Admin only.
+          Orders, Bills, Payments Made, Banks, Projects and Units. Visible to Owner and Admin only.
         </p>
       </div>
 
