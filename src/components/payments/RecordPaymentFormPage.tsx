@@ -13,8 +13,15 @@ export default async function RecordPaymentFormPage() {
       `SELECT id, display_name, company_name FROM customers WHERE organization_id = $1 AND is_active = true ORDER BY display_name ASC`,
       [ctx.orgId]
     ),
-    query<{ id: string; account_name: string; is_primary: boolean; project_id: string | null; gl_account_type: string | null }>(
-      `SELECT ba.id, ba.account_name, ba.is_primary, ba.project_id, a.type AS gl_account_type
+    query<{
+      id: string;
+      account_name: string;
+      is_primary: boolean;
+      project_id: string | null;
+      gl_account_type: string | null;
+      gl_account_code: string | null;
+    }>(
+      `SELECT ba.id, ba.account_name, ba.is_primary, ba.project_id, a.type AS gl_account_type, a.code AS gl_account_code
        FROM bank_accounts ba
        LEFT JOIN accounts a ON a.id = ba.gl_account_id
        WHERE ba.organization_id = $1
@@ -35,7 +42,11 @@ export default async function RecordPaymentFormPage() {
       }))}
       bankAccountOptions={bankAccounts.map((b) => ({
         value: b.id,
-        label: b.account_name,
+        // "[ code ] Name" when the linked Chart of Accounts entry has a code — matches the
+        // Zoho Books reference screenshot the grouped "Deposit To" picker was built from (e.g.
+        // "[ 5612 ] ENBD-Corporate"). Falls back to the plain account name when no code is set,
+        // which today is every real account in this org (see the 2026-09-15 GL-codes addendum).
+        label: b.gl_account_code ? `[ ${b.gl_account_code} ] ${b.account_name}` : b.account_name,
         projectId: b.project_id,
         glAccountType: b.gl_account_type,
       }))}

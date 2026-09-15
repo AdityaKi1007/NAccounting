@@ -4,9 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "@/components/ui/Modal";
 import Combobox, { type ComboboxOption } from "@/components/ui/Combobox";
+import GroupedCombobox from "@/components/ui/GroupedCombobox";
 import { formatCurrency, formatDate } from "@/lib/format";
 import AttachmentsField from "@/components/attachments/AttachmentsField";
 import { uploadPendingAttachments } from "@/lib/attachments-client";
+import { depositToGroupLabel } from "@/lib/accounts";
 
 interface OpenBill {
   id: string;
@@ -21,10 +23,10 @@ interface OpenBill {
  * picked above it — same shape/reasoning as RecordPaymentForm.tsx's own BankAccountOption.
  *
  * `glAccountType` (the `type` of the linked Chart of Accounts entry — bank_accounts.gl_account_id
- * -> accounts.type) is still passed through by the server component but is no longer used to
- * filter this list — see the 2026-09-15 fix note on filteredBankAccountOptions below for why the
- * Cash-mode narrowing that used to read it was removed. Kept on the type in case a future,
- * better-targeted use for it comes up. */
+ * -> accounts.type) is no longer used to *filter* this list (see the 2026-09-15 fix note on
+ * filteredBankAccountOptions below for why the old Cash-mode narrowing was removed), but is used
+ * again as of the same day to *group* it — see RecordPaymentForm.tsx's own BankAccountOption for
+ * the full explanation (identical here). */
 interface BankAccountOption {
   value: string;
   label: string;
@@ -189,6 +191,18 @@ export default function RecordPaymentMadeForm({
     });
   }, [bankAccountOptions, projectId]);
 
+  // Same list, reshaped for GroupedCombobox — see RecordPaymentForm.tsx's own
+  // groupedBankAccountOptions for the full explanation (identical here).
+  const groupedBankAccountOptions = useMemo(
+    () =>
+      filteredBankAccountOptions.map((a) => ({
+        value: a.value,
+        label: a.label,
+        group: depositToGroupLabel(a.glAccountType),
+      })),
+    [filteredBankAccountOptions]
+  );
+
   // If the previously-selected Paid Through account gets filtered out by a Project change,
   // clear it rather than silently keep submitting a now-hidden value.
   useEffect(() => {
@@ -318,14 +332,15 @@ export default function RecordPaymentMadeForm({
           <label className="label pt-2">
             Paid Through<span className="text-red-500">*</span>
           </label>
-          <select className="input max-w-sm" value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)}>
-            <option value="">Select an account</option>
-            {filteredBankAccountOptions.map((a) => (
-              <option key={a.value} value={a.value}>
-                {a.label}
-              </option>
-            ))}
-          </select>
+          <div className="max-w-sm">
+            <GroupedCombobox
+              options={groupedBankAccountOptions}
+              value={bankAccountId}
+              onChange={setBankAccountId}
+              placeholder="Select an account"
+              searchPlaceholder="Search"
+            />
+          </div>
 
           <label className="label pt-2">Reference#</label>
           <input type="text" className="input max-w-sm" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} />

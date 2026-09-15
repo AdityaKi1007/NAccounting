@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "@/components/ui/Modal";
 import Combobox, { type ComboboxOption } from "@/components/ui/Combobox";
+import GroupedCombobox from "@/components/ui/GroupedCombobox";
 import { formatCurrency, formatDate } from "@/lib/format";
 import AttachmentsField from "@/components/attachments/AttachmentsField";
 import { uploadPendingAttachments } from "@/lib/attachments-client";
+import { depositToGroupLabel } from "@/lib/accounts";
 
 interface UnpaidInvoice {
   id: string;
@@ -21,10 +23,11 @@ interface UnpaidInvoice {
  * picked above it. Richer than a plain ComboboxOption for that reason.
  *
  * `glAccountType` (the `type` of the linked Chart of Accounts entry — bank_accounts.gl_account_id
- * -> accounts.type) is still passed through by the server component but is no longer used to
- * filter this list — see the 2026-09-15 fix note on filteredBankAccountOptions below for why the
- * Cash-mode narrowing that used to read it was removed. Kept on the type in case a future,
- * better-targeted use for it comes up. */
+ * -> accounts.type) is no longer used to *filter* this list (see the 2026-09-15 fix note on
+ * filteredBankAccountOptions below for why the old Cash-mode narrowing was removed), but is used
+ * again as of the same day to *group* it: "Deposit To" now renders as a GroupedCombobox with a
+ * "Bank"/"Cash"/"Other Current Liability"/... header per account, built against a Zoho Books
+ * reference screenshot — see depositToGroupLabel in src/lib/accounts.ts. */
 interface BankAccountOption {
   value: string;
   label: string;
@@ -173,6 +176,21 @@ export default function RecordPaymentForm({
       return projectMatches;
     });
   }, [bankAccountOptions, projectId]);
+
+  // Same list, reshaped for GroupedCombobox: grouped by the linked GL account's type (Bank /
+  // Cash / Other Current Liability / ...), matching the reference screenshot this picker was
+  // built from. Options within a group keep filteredBankAccountOptions' own order (is_primary
+  // first, then alphabetical — see RecordPaymentFormPage.tsx's query), and groups themselves
+  // appear in first-seen order, which server-side ordering also makes stable run to run.
+  const groupedBankAccountOptions = useMemo(
+    () =>
+      filteredBankAccountOptions.map((a) => ({
+        value: a.value,
+        label: a.label,
+        group: depositToGroupLabel(a.glAccountType),
+      })),
+    [filteredBankAccountOptions]
+  );
 
   // If the previously-selected Deposit To account gets filtered out by a Project change,
   // clear it rather than silently keep submitting a now-hidden value.
@@ -333,18 +351,15 @@ export default function RecordPaymentForm({
           <label className="label pt-2">
             Deposit To<span className="text-red-500">*</span>
           </label>
-          <select
-            className="input max-w-sm"
-            value={bankAccountId}
-            onChange={(e) => setBankAccountId(e.target.value)}
-          >
-            <option value="">Select an account</option>
-            {filteredBankAccountOptions.map((a) => (
-              <option key={a.value} value={a.value}>
-                {a.label}
-              </option>
-            ))}
-          </select>
+          <div className="max-w-sm">
+            <GroupedCombobox
+              options={groupedBankAccountOptions}
+              value={bankAccountId}
+              onChange={setBankAccountId}
+              placeholder="Select an account"
+              searchPlaceholder="Search"
+            />
+          </div>
 
           <label className="label pt-2">Reference#</label>
           <input

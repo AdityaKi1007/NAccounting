@@ -10,7 +10,8 @@
     "migrate": "node -r dotenv/config node_modules/node-pg-migrate/bin/node-pg-migrate --no-check-order",
     "migrate:up": "node -r dotenv/config node_modules/node-pg-migrate/bin/node-pg-migrate up --no-check-order",
     "seed": "tsx scripts/seed.ts",
-    "seed:coa-gl-codes": "tsx -r dotenv/config scripts/seed-coa-gl-codes.ts"
+    "seed:coa-gl-codes": "tsx -r dotenv/config scripts/seed-coa-gl-codes.ts",
+    "fix:cash-mode-accounts": "tsx -r dotenv/config scripts/fix-cash-mode-accounts.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1129.0",
