@@ -18,10 +18,13 @@ interface UnpaidInvoice {
 
 /** A bank account option carrying its own optional Project tag (bank_accounts.project_id — see
  * BankAccountModal.tsx's own Project select) so "Deposit To" can be filtered by the Project
- * picked above it, plus the `type` of the Chart of Accounts entry it's linked to
- * (bank_accounts.gl_account_id -> accounts.type) so it can also be narrowed to only
- * Cash-linked accounts when Payment Mode is Cash. Richer than a plain ComboboxOption for
- * these reasons. */
+ * picked above it. Richer than a plain ComboboxOption for that reason.
+ *
+ * `glAccountType` (the `type` of the linked Chart of Accounts entry — bank_accounts.gl_account_id
+ * -> accounts.type) is still passed through by the server component but is no longer used to
+ * filter this list — see the 2026-09-15 fix note on filteredBankAccountOptions below for why the
+ * Cash-mode narrowing that used to read it was removed. Kept on the type in case a future,
+ * better-targeted use for it comes up. */
 interface BankAccountOption {
   value: string;
   label: string;
@@ -153,18 +156,23 @@ export default function RecordPaymentForm({
   // "Deposit To" is strictly scoped by the selected Project: with a Project selected, only
   // accounts tagged to that exact project show; with no Project selected, only untagged
   // (org-wide) accounts show — accounts tagged to any other project are always hidden either
-  // way (see bank_accounts.project_id / BankAccountModal.tsx's own Project select). On top of
-  // that, Payment Mode = Cash narrows further to only accounts linked to a Cash-type Chart of
-  // Accounts entry (bank_accounts.gl_account_id -> accounts.type = 'cash') — see
-  // BankAccountModal.tsx's "Link to Chart of Accounts" field for how an account gets linked.
+  // way (see bank_accounts.project_id / BankAccountModal.tsx's own Project select).
+  //
+  // Real bug found and fixed 2026-09-15: this used to also narrow the list, when Payment Mode
+  // is Cash, to only accounts linked to a Cash-type Chart of Accounts entry
+  // (bank_accounts.gl_account_id -> accounts.type = 'cash'). In practice almost no org tags its
+  // bank accounts' linked COA entry as 'cash' (getOrCreateBankGLAccount in auto-journal.ts only
+  // ever auto-creates 'bank' or 'credit_card' types), so that filter usually left the dropdown
+  // empty the moment Cash was selected, effectively blocking Cash-mode payments. Removed —
+  // Payment Mode no longer affects which accounts are listed here; Cash mode now shows the same
+  // project-filtered list as every other mode, same as RecordPaymentMadeForm.tsx's own
+  // filteredBankAccountOptions.
   const filteredBankAccountOptions = useMemo(() => {
     return bankAccountOptions.filter((a) => {
       const projectMatches = projectId ? a.projectId === projectId : !a.projectId;
-      if (!projectMatches) return false;
-      if (paymentMode === "cash" && a.glAccountType !== "cash") return false;
-      return true;
+      return projectMatches;
     });
-  }, [bankAccountOptions, projectId, paymentMode]);
+  }, [bankAccountOptions, projectId]);
 
   // If the previously-selected Deposit To account gets filtered out by a Project change,
   // clear it rather than silently keep submitting a now-hidden value.
