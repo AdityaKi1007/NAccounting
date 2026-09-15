@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Landmark, CreditCard, Star, Pencil, Trash2, ChevronDown, ChevronRight, Link2 } from "lucide-react";
+import { Plus, Landmark, CreditCard, Star, Pencil, Trash2, ChevronDown, ChevronRight, Link2, Upload, ListChecks } from "lucide-react";
 import BankAccountModal, { type BankAccountData, type GLAccountOption, type ProjectOption } from "@/components/banking/BankAccountModal";
+import StatementImportWizard from "@/components/banking/StatementImportWizard";
 import { formatCurrency } from "@/lib/format";
 
 export interface BankRow {
@@ -35,17 +36,20 @@ export default function BankingClient({
   bookBalances,
   glAccountOptions,
   projectOptions,
+  pendingImportCount = 0,
 }: {
   rows: Row[];
   bookBalances: Record<string, BookBalance>;
   glAccountOptions: GLAccountOption[];
   projectOptions: ProjectOption[];
+  pendingImportCount?: number;
 }) {
   const router = useRouter();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<BankAccountData | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const glAccountById = new Map(glAccountOptions.map((a) => [a.id, a]));
   const projectById = new Map(projectOptions.map((p) => [p.id, p]));
@@ -86,10 +90,25 @@ export default function BankingClient({
           <h1 className="text-lg font-semibold text-ink-800">Banks</h1>
           <p className="mt-0.5 text-sm text-gray-500">Manage the bank and credit card accounts for your organization</p>
         </div>
-        <button onClick={openNew} className="btn-primary">
-          <Plus size={16} />
-          Add Bank or Credit Card
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <a href="/banking/imports" className="btn-secondary relative">
+            <ListChecks size={16} />
+            Imported Transactions
+            {pendingImportCount > 0 && (
+              <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700">
+                {pendingImportCount}
+              </span>
+            )}
+          </a>
+          <button onClick={() => setImportOpen(true)} className="btn-secondary">
+            <Upload size={16} />
+            Import Statement
+          </button>
+          <button onClick={openNew} className="btn-primary">
+            <Plus size={16} />
+            Add Bank or Credit Card
+          </button>
+        </div>
       </div>
 
       <div className="p-6">
@@ -244,6 +263,12 @@ export default function BankingClient({
         initial={editing}
         glAccountOptions={glAccountOptions}
         projectOptions={projectOptions}
+      />
+
+      <StatementImportWizard
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        bankAccountOptions={rows.map((r) => ({ id: r.id, account_name: r.account_name, bank_name: r.bank_name }))}
       />
     </div>
   );

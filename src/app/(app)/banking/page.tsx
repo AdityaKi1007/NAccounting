@@ -1,7 +1,7 @@
 import { listRows } from "@/lib/crud";
 import { requireActiveContext } from "@/lib/session";
 import { requireModuleAccess } from "@/lib/module-access";
-import { query } from "@/lib/db";
+import { query, queryOne } from "@/lib/db";
 import { closingBalance } from "@/lib/accounts";
 import BankingClient, { type BankRow, type BookBalance } from "@/components/banking/BankingClient";
 
@@ -80,5 +80,22 @@ export default async function BankingPage() {
     [ctx.orgId]
   );
 
-  return <BankingClient rows={rows} bookBalances={bookBalances} glAccountOptions={glAccountOptions} projectOptions={projectOptions} />;
+  // Badge on the new "Imported Transactions" button (see StatementImportWizard.tsx / the
+  // Banks -> "Import Statement" feature) — how many staged rows across every bank/credit-card
+  // account still need a category picked and posted.
+  const pendingImportCountRow = await queryOne<{ count: string }>(
+    `SELECT count(*) FROM imported_bank_transactions WHERE organization_id = $1 AND status = 'pending'`,
+    [ctx.orgId]
+  );
+  const pendingImportCount = Number(pendingImportCountRow?.count ?? 0);
+
+  return (
+    <BankingClient
+      rows={rows}
+      bookBalances={bookBalances}
+      glAccountOptions={glAccountOptions}
+      projectOptions={projectOptions}
+      pendingImportCount={pendingImportCount}
+    />
+  );
 }

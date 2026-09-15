@@ -11,13 +11,23 @@ import ReportDateRangeBar from "@/components/reports/ReportDateRangeBar";
 
 const CASH_TYPES = ["cash", "bank"];
 
-// Every journal line touching a Cash/Bank account is traced back to exactly one of these
-// three sources — see auto-journal.ts: Payments Received debit the bank (money in), Payments
-// Made and Expenses credit it (money out). Nothing else in this app posts to a cash account,
-// so summing by which link column its journal carries gives an exact, directly-sourced cash
-// flow breakdown rather than an estimate. Everything is shown under Operating Activities —
-// this app has no fixed-asset purchases or financing transactions (loans, owner draws) to
-// separate into Investing/Financing sections.
+// Real bug found and fixed 2026-09-15: this comment used to claim every journal line touching
+// a Cash/Bank account traces back to exactly one of Payments Received/Payments Made/Expenses.
+// That was true of this app's *document* types when Cash Flow was first built, but several
+// things post directly to a cash/bank account without going through any of those three link
+// columns — an Opening Balance journal (Cash debited straight against Owner's Equity, no
+// invoice/bill/payment/expense behind it at all), a Payment Refund, a bank statement import
+// posting (postImportedTransaction in bank-statement-imports.ts creates its journal directly,
+// with no payment_id/payment_made_id/expense_id), or any raw Manual Journal entry someone
+// enters that happens to touch a bank account. Live proof: this org's real Opening Balance
+// journal (Cash Dr 45,000 / Owner's Equity Cr 45,000) made Beginning Cash Balance (0) + Net
+// Change in Cash (-850, from only the 3 tracked buckets) disagree with Ending Cash Balance
+// (44,150) by exactly that 45,000 — the three bottom rows visibly didn't add up. Fixed by
+// adding a 4th bucket, `otherCashMovements` below, covering every cash-touching journal line
+// NOT linked to payment_id/payment_made_id/expense_id — so Net Change in Cash now always
+// equals every cash/bank journal line in the period, by construction, and Beginning + Net
+// Change = Ending is a real identity again rather than something that happens to hold only
+// when nothing else has ever touched a cash account.
 //
 // `sourceTable` names the table that mj.<linkColumn> points to, for Project/Unit filtering —
 // payments_received and payments_made both carry project_id/unit_id. Pass null for a link
@@ -63,6 +73,35 @@ async function cumulativeCashBalance(orgId: string, throughDate: string) {
   return Number(result?.total ?? 0);
 }
 
+// Every cash/bank journal line whose journal carries NONE of the 3 tracked link columns —
+// Opening Balances, Payment Refunds, Credit/Debit Notes, Vendor Credits, bank statement import
+// postings, and any raw Manual Journal entry that happens to touch a bank account. Signed as
+// net debit-minus-credit (like cumulativeCashBalance above) rather than a single direction,
+// since unlike the 3 tracked buckets this is a genuine mix of both cash-in and cash-out
+// entries. None of these source types carry a Project/Unit tag, so — same treatment as Cash
+// Paid for Expenses above — this is forced to 0 whenever a Project/Unit filter is active
+// rather than silently including untagged amounts.
+async function otherCashMovements(
+  orgId: string,
+  from: string,
+  to: string,
+  projectId: string | null,
+  unitId: string | null
+) {
+  if (projectId || unitId) return 0;
+  const result = await queryOne<{ total: string | null }>(
+    `SELECT SUM(jl.debit - jl.credit) AS total
+     FROM journal_lines jl
+     JOIN manual_journals mj ON mj.id = jl.journal_id
+     JOIN accounts a ON a.id = jl.account_id
+     WHERE mj.organization_id = $1 AND a.organization_id = $1 AND mj.status = 'published' AND mj.journal_date BETWEEN $2 AND $3
+       AND a.type = ANY($4::text[])
+       AND mj.payment_id IS NULL AND mj.payment_made_id IS NULL AND mj.expense_id IS NULL`,
+    [orgId, from, to, CASH_TYPES]
+  );
+  return Number(result?.total ?? 0);
+}
+
 export default async function CashFlowPage({
   searchParams,
 }: {
@@ -92,15 +131,18 @@ export default async function CashFlowPage({
   // dimension. They're only computed (and only shown) in the unfiltered view; under an active
   // filter they're hidden in favor of the one figure that IS legitimately attributable: Net
   // Cash from Operating Activities (see the disclosure note below the table).
-  const [receivedFromCustomers, paidToVendors, paidForExpenses, beginningCash, endingCash] = await Promise.all([
+  const [receivedFromCustomers, paidToVendors, paidForExpenses, otherMovements, beginningCash, endingCash] = await Promise.all([
     cashMovement(ctx.orgId, from, to, "payment_id", "debit", "payments_received", projectId, unitId),
     cashMovement(ctx.orgId, from, to, "payment_made_id", "credit", "payments_made", projectId, unitId),
     cashMovement(ctx.orgId, from, to, "expense_id", "credit", null, projectId, unitId),
+    otherCashMovements(ctx.orgId, from, to, projectId, unitId),
     filtered ? Promise.resolve(0) : cumulativeCashBalance(ctx.orgId, beginningDate),
     filtered ? Promise.resolve(0) : cumulativeCashBalance(ctx.orgId, to),
   ]);
 
-  const netChange = receivedFromCustomers - paidToVendors - paidForExpenses;
+  // Includes otherMovements so this always equals endingCash - beginningCash exactly — see the
+  // otherCashMovements doc comment above for why that wasn't true before this fix.
+  const netChange = receivedFromCustomers - paidToVendors - paidForExpenses + otherMovements;
 
   return (
     <div>
@@ -140,6 +182,13 @@ export default async function CashFlowPage({
                 </td>
                 <td className="px-5 py-2 text-right text-ink-800">{formatCurrency(-paidForExpenses)}</td>
               </tr>
+              <tr>
+                <td className="px-5 py-2 pl-9 text-ink-700">
+                  Other Cash Movements
+                  {filtered && <span className="ml-1 text-gray-400">(excluded — see note below)</span>}
+                </td>
+                <td className="px-5 py-2 text-right text-ink-800">{formatCurrency(otherMovements)}</td>
+              </tr>
               <tr className="border-t border-gray-200 font-semibold text-ink-800">
                 <td className="px-5 py-2">Net Cash from Operating Activities</td>
                 <td className="px-5 py-2 text-right">{formatCurrency(netChange)}</td>
@@ -167,11 +216,13 @@ export default async function CashFlowPage({
         {filtered && (
           <p className="mt-3 text-xs text-gray-400">
             Filtered by Project/Unit: Cash Received from Customers and Cash Paid to Vendors reflect only
-            Payments Received/Made tagged to the selected Project/Unit. Cash Paid for Expenses is excluded
-            (shown as zero) because Expenses aren&apos;t tagged with a Project or Unit. Beginning/Ending Cash
-            Balance are hidden here — they represent the organization&apos;s actual whole bank balance, which
-            is shared across all projects and can&apos;t be honestly split by this filter (switch back to All
-            Projects/All Units to see them).
+            Payments Received/Made tagged to the selected Project/Unit. Cash Paid for Expenses and Other Cash
+            Movements (Opening Balances, Payment Refunds, Credit/Debit Notes, bank statement import postings,
+            and any other journal entry that isn&apos;t a Payment Received/Made) are excluded (shown as zero)
+            because none of those carry a Project or Unit tag. Beginning/Ending Cash Balance are hidden here —
+            they represent the organization&apos;s actual whole bank balance, which is shared across all
+            projects and can&apos;t be honestly split by this filter (switch back to All Projects/All Units to
+            see them).
           </p>
         )}
       </div>

@@ -439,11 +439,21 @@ export default function DocumentForm({
                         </select>
                       </td>
                       <td className="px-3 py-1.5">
+                        {/* Previously `disabled={!row.revenueRecognitionRuleId}` — since the
+                            Rule <select>'s own default/placeholder option ("Immediate (no
+                            deferral)") has value="", an untagged row looked exactly like a real
+                            "Immediate" selection while silently locking these two date inputs,
+                            which read as a bug ("can't select a date") rather than the intended
+                            "tag a rule first" gating. Server-side schedule generation
+                            (syncRevenueRecognitionSchedule in auto-journal.ts) already requires
+                            revenue_recognition_rule_id IS NOT NULL before it looks at either
+                            date, so a date entered on an untagged/Immediate line is always inert
+                            — safe to let users fill in the service period in either order, or
+                            record it for reference even without picking a deferral rule. */}
                         <input
                           className="input"
                           type="date"
                           value={row.serviceStartDate}
-                          disabled={!row.revenueRecognitionRuleId}
                           onChange={(e) => updateRow(row.key, { serviceStartDate: e.target.value })}
                         />
                       </td>
@@ -452,7 +462,6 @@ export default function DocumentForm({
                           className="input"
                           type="date"
                           value={row.serviceEndDate}
-                          disabled={!row.revenueRecognitionRuleId}
                           onChange={(e) => updateRow(row.key, { serviceEndDate: e.target.value })}
                         />
                       </td>

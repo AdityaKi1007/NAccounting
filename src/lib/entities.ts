@@ -1182,7 +1182,7 @@ export const entities: Record<string, EntityDef> = {
     kind: "flat",
     titleField: "name",
     orderBy: "code asc nulls last, name asc",
-    listColumns: ["code", "name", "type", "project_id", "parent_account_id", "is_active"],
+    listColumns: ["code", "name", "type", "parent_account_id", "is_active"],
     hasDetailView: true,
     fields: [
       { name: "code", label: "Account Code", type: "text" },
