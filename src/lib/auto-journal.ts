@@ -901,11 +901,14 @@ export async function syncDebitNoteJournal(client: PoolClient, orgId: string, de
 // AR, expense accounts instead of income).
 // ---------------------------------------------------------------------------------------
 
-/** Syncs the auto-journal for one bill: Dr [purchase expense] + Dr [VAT Payable, if any] /
+/** Syncs the auto-journal for one bill: Dr [purchase expense] + Dr [Input VAT, if any] /
  * Cr Accounts Payable, for the bill's subtotal/tax/total — the exact mirror of
  * syncInvoiceJournal. Draft bills post nothing (nothing owed yet); Open/Overdue/Paid/
  * Partially Paid all post the same full-total journal, since paying a bill down is a
- * SEPARATE journal entry (see syncPaymentMadeJournal) rather than a change to this one. */
+ * SEPARATE journal entry (see syncPaymentMadeJournal) rather than a change to this one.
+ * 2026-09-15: this used to debit the same "VAT Payable" account Invoices credit for output
+ * VAT — see findAccountId's `types` below for how Input VAT (a distinct, recoverable asset
+ * account) and VAT Payable (Output VAT only now) are told apart. */
 export async function syncBillJournal(client: PoolClient, orgId: string, billId: string) {
   const bill = await client.query<{
     bill_number: string;
@@ -970,7 +973,11 @@ export async function syncBillJournal(client: PoolClient, orgId: string, billId:
     b.accounts_payable_account_id
       ? Promise.resolve(b.accounts_payable_account_id as string | null)
       : findAccountId(client, orgId, { types: ["accounts_payable"] }),
-    taxTotal > 0 ? findAccountId(client, orgId, { types: ["other_current_liability"], nameLike: "vat" }) : Promise.resolve(null),
+    // Input VAT — a distinct recoverable-asset account from "VAT Payable" (Output VAT only,
+    // used by Invoices/Credit Notes/Debit Notes). See migrations/1793000000000_input_vat_
+    // account.js for the full design note; `other_current_asset` is what disambiguates this
+    // from VAT Payable's `other_current_liability`, not the "vat" name match alone.
+    taxTotal > 0 ? findAccountId(client, orgId, { types: ["other_current_asset"], nameLike: "vat" }) : Promise.resolve(null),
   ]);
 
   if (!apAccountId || (taxTotal > 0 && !taxAccountId)) return bail();
@@ -981,10 +988,7 @@ export async function syncBillJournal(client: PoolClient, orgId: string, billId:
     lines.push({ accountId, description: `Bill ${b.bill_number}`, debit: amount, credit: 0 });
   }
   if (taxTotal > 0 && taxAccountId) {
-    // Input VAT reduces the same VAT Payable liability output tax builds up — see the
-    // matching note on syncExpenseJournal for why this app doesn't track a separate
-    // recoverable-input-VAT account.
-    lines.push({ accountId: taxAccountId, description: `Bill ${b.bill_number} — VAT`, debit: taxTotal, credit: 0 });
+    lines.push({ accountId: taxAccountId, description: `Bill ${b.bill_number} — Input VAT`, debit: taxTotal, credit: 0 });
   }
   lines.push({ accountId: apAccountId, description: `Bill ${b.bill_number}`, debit: 0, credit: total });
 
@@ -1104,11 +1108,15 @@ export async function syncPaymentMadeJournal(client: PoolClient, orgId: string, 
   });
 }
 
-/** Syncs the auto-journal for one expense: Dr [expense.account_id] + Dr [VAT Payable, if any]
+/** Syncs the auto-journal for one expense: Dr [expense.account_id] + Dr [Input VAT, if any]
  * / Cr [paid_through_account's bank GL account]. An expense is always immediate cash leaving
  * (no Accounts Payable staging the way a Bill has) — this app doesn't distinguish "expense
  * paid on credit" from "expense paid now", so every expense needs a Paid Through account to
- * post at all; one left blank quietly posts nothing rather than guessing which bank moved. */
+ * post at all; one left blank quietly posts nothing rather than guessing which bank moved.
+ * 2026-09-15: "why input vat entry is not shown" — this used to debit the same "VAT Payable"
+ * account Invoices credit for output VAT, so an expense's tax never showed as its own
+ * distinct line. See syncBillJournal's matching note for the Input-VAT-vs-VAT-Payable
+ * account split (migrations/1793000000000_input_vat_account.js has the full design note). */
 export async function syncExpenseJournal(client: PoolClient, orgId: string, expenseId: string) {
   const expense = await client.query<{
     expense_date: string;
@@ -1145,7 +1153,9 @@ export async function syncExpenseJournal(client: PoolClient, orgId: string, expe
 
   const [bankAccountId, taxAccountId] = await Promise.all([
     getOrCreateBankGLAccount(client, orgId, exp.paid_through_account_id),
-    taxAmount > 0 ? findAccountId(client, orgId, { types: ["other_current_liability"], nameLike: "vat" }) : Promise.resolve(null),
+    // Input VAT (other_current_asset), not VAT Payable (other_current_liability) — see this
+    // function's own doc comment and syncBillJournal's matching note.
+    taxAmount > 0 ? findAccountId(client, orgId, { types: ["other_current_asset"], nameLike: "vat" }) : Promise.resolve(null),
   ]);
 
   if (!bankAccountId || (taxAmount > 0 && !taxAccountId)) {
@@ -1163,7 +1173,7 @@ export async function syncExpenseJournal(client: PoolClient, orgId: string, expe
 
   const lines: JournalLineInput[] = [{ accountId: exp.account_id, description: label, debit: amount, credit: 0 }];
   if (taxAmount > 0 && taxAccountId) {
-    lines.push({ accountId: taxAccountId, description: `${label} — VAT`, debit: taxAmount, credit: 0 });
+    lines.push({ accountId: taxAccountId, description: `${label} — Input VAT`, debit: taxAmount, credit: 0 });
   }
   lines.push({ accountId: bankAccountId, description: label, debit: 0, credit: total });
 
@@ -1179,7 +1189,7 @@ export async function syncExpenseJournal(client: PoolClient, orgId: string, expe
 }
 
 /** Syncs the auto-journal for one vendor credit: Dr Accounts Payable [total] / Cr [each line's
- * account, merged by account] + Cr [VAT Payable, if any] — the mirror of syncBillJournal,
+ * account, merged by account] + Cr [Input VAT, if any] — the mirror of syncBillJournal,
  * reversed for the vendor side (a vendor credit un-does part of what a bill posted: it reduces
  * what's owed and reduces the expense/asset originally recognized against it). Posts for both
  * "open" and "closed" status (there's no void/draft concept here, so a vendor credit only ever
@@ -1240,7 +1250,9 @@ export async function syncVendorCreditJournal(client: PoolClient, orgId: string,
     vc.accounts_payable_account_id
       ? Promise.resolve(vc.accounts_payable_account_id as string | null)
       : findAccountId(client, orgId, { types: ["accounts_payable"] }),
-    taxTotal > 0 ? findAccountId(client, orgId, { types: ["other_current_liability"], nameLike: "vat" }) : Promise.resolve(null),
+    // Input VAT — this reverses part of what syncBillJournal debited, so it needs to resolve
+    // the same account that function does (other_current_asset), not VAT Payable.
+    taxTotal > 0 ? findAccountId(client, orgId, { types: ["other_current_asset"], nameLike: "vat" }) : Promise.resolve(null),
   ]);
 
   if (!apAccountId || (taxTotal > 0 && !taxAccountId)) return bail();
@@ -1253,7 +1265,7 @@ export async function syncVendorCreditJournal(client: PoolClient, orgId: string,
     lines.push({ accountId, description: `Vendor Credit ${vc.credit_note_number}`, debit: 0, credit: amount });
   }
   if (taxTotal > 0 && taxAccountId) {
-    lines.push({ accountId: taxAccountId, description: `Vendor Credit ${vc.credit_note_number} — VAT`, debit: 0, credit: taxTotal });
+    lines.push({ accountId: taxAccountId, description: `Vendor Credit ${vc.credit_note_number} — Input VAT`, debit: 0, credit: taxTotal });
   }
 
   await replaceJournal(client, {

@@ -61,7 +61,15 @@ export const DEFAULT_ACCOUNTS: { code: string; name: string; type: string }[] = 
   { code: "1000", name: "Cash", type: "cash" },
   { code: "1010", name: "Accounts Receivable", type: "accounts_receivable" },
   { code: "1020", name: "Inventory Asset", type: "stock" },
+  // Recoverable input tax on purchases (Bills/Expenses/Vendor Credits) — a current asset,
+  // deliberately separate from "VAT Payable" below (that one is Output VAT only, a
+  // liability). See migrations/1793000000000_input_vat_account.js for the full design note
+  // on why this app tracks the two directions of VAT in distinct accounts.
+  { code: "1030", name: "Input VAT", type: "other_current_asset" },
   { code: "2000", name: "Accounts Payable", type: "accounts_payable" },
+  // Output VAT only, as of 2026-09-15 — what Invoices/Credit Notes/Debit Notes (the sales
+  // side) credit for VAT collected from customers. See "Input VAT" below for the purchase
+  // side; migrations/1793000000000_input_vat_account.js has the full design note.
   { code: "2010", name: "VAT Payable", type: "other_current_liability" },
   { code: "3000", name: "Owner's Equity", type: "equity" },
   { code: "3010", name: "Retained Earnings", type: "equity" },
