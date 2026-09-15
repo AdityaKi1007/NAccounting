@@ -245,6 +245,26 @@ export async function createDocument(
       await syncInvoiceJournal(client, orgId, headerId);
     } else if (cfg.key === "bills") {
       await syncBillJournal(client, orgId, headerId);
+    } else if (cfg.key === "sales_orders") {
+      // Creating a sales order against a unit marks that unit Sold (per the requested
+      // behavior: "update unit status to Sold when sales order is created through APIs").
+      // Scope decisions, documented here since there's no other natural home for them:
+      //  - Only fires here, on CREATE, when unit_id is present in the request — a sales
+      //    order with no unit_id (project-only, or neither) leaves inventory untouched.
+      //  - unit_id was already tenant-validated above by validateDocumentRefs (via
+      //    extraHeaderFieldRefs), so no extra org check is needed beyond the WHERE clause.
+      //  - Deliberately unconditional on the sales order's own status (draft/confirmed) —
+      //    the request didn't distinguish, and SalesOrderForm.tsx only ever submits those
+      //    two, so a unit tagged on a still-draft order reads as reserved-via-Sold. If a
+      //    "confirmed-only" nuance is wanted later, gate this on requestedStatus/initialStatus.
+      //  - A later PATCH that merely attaches/changes unit_id on an existing order does NOT
+      //    go through this create path and does NOT mark a unit Sold — only this initial
+      //    create does. That's an intentional scope boundary, not an oversight; see the
+      //    matching note in updateDocument for the mirrored cancel -> Available behavior.
+      const unitId = body.header?.unit_id;
+      if (unitId) {
+        await client.query(`UPDATE inventory SET status = 'sold' WHERE organization_id = $1 AND id = $2`, [orgId, unitId]);
+      }
     }
 
     let auditNewRow: Record<string, unknown> | undefined;
@@ -352,6 +372,10 @@ export async function updateDocument(
       setParts.push(`${column} = $${idx}`);
       values.push(value);
     }
+    // Set below, inside the "status" in body.header branch, when this update is a real
+    // sales-order draft/confirmed -> cancelled transition. Declared up here so it's in scope
+    // for the inventory-release call alongside the journal-sync calls further down.
+    let salesOrderCancelledTransition = false;
 
     if (body.header && cfg.partyField in body.header) setField(cfg.partyField, body.header[cfg.partyField] || null);
     if (body.header && cfg.dateField in body.header) setField(cfg.dateField, body.header[cfg.dateField] || current[cfg.dateField]);
@@ -372,6 +396,15 @@ export async function updateDocument(
         (requestedStatus === "paid" || requestedStatus === "partially_paid") &&
         requestedStatus !== current.status;
       if (!blockedTransition) setField("status", requestedStatus || "draft");
+      // Per "set Available status of unit when sales order is updated as cancelled": a real
+      // transition INTO cancelled (comparing against the DB value, same reasoning as
+      // blockedTransition above) — not a resubmit of an already-cancelled order — releases
+      // the order's unit. SalesOrderForm.tsx never sends "cancelled" (only draft/confirmed),
+      // so in practice this only ever fires via a direct /api/v1 PATCH, which matches how the
+      // request was phrased ("through APIs").
+      if (cfg.key === "sales_orders" && requestedStatus === "cancelled" && current.status !== "cancelled") {
+        salesOrderCancelledTransition = true;
+      }
     }
     if (body.header && "notes" in body.header) setField("notes", body.header.notes || null);
     for (const f of cfg.extraHeaderFields ?? []) {
@@ -410,6 +443,18 @@ export async function updateDocument(
       await syncInvoiceJournal(client, orgId, id);
     } else if (cfg.key === "bills") {
       await syncBillJournal(client, orgId, id);
+    } else if (cfg.key === "sales_orders" && salesOrderCancelledTransition && current.unit_id) {
+      // Cancelling a sales order releases its unit back to Available. Scope decisions,
+      // mirroring the note in createDocument:
+      //  - Only fires on a genuine transition into "cancelled" (salesOrderCancelledTransition,
+      //    set above) — resubmitting "cancelled" on an already-cancelled order is a no-op here.
+      //  - Uses current.unit_id — the unit already on record for this order before this
+      //    update — not a unit newly attached in this same request. Re-tagging unit_id
+      //    without touching status does not move inventory at all.
+      //  - Does not restore "sold" if a cancelled order is later un-cancelled, and does
+      //    nothing if the order never had a unit_id.
+      //  - Does not run on sales-order delete (there is no delete path through this engine).
+      await client.query(`UPDATE inventory SET status = 'available' WHERE organization_id = $1 AND id = $2`, [orgId, current.unit_id]);
     }
 
     let auditNewRow: Record<string, unknown> | undefined;
